@@ -309,6 +309,10 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 - **Status**: `BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION`
 - **Rationale**: GenLayer validators require public, immutable HTTPS endpoints for evidence fetching during consensus. Under the local repository boundary (no remote configured, no push permitted), fixtures cannot yet be published to an immutable commit-pinned URL.
+- **Fixture URL Policy**: Placeholder URLs (e.g., `/main/`) are strictly rejected by the validator harness. Live testing requires the Two-Commit publication flow:
+  1. Stage A: Publish evidence documents and capture Commit SHA A.
+  2. Stage B: Pin snapshot nested evidence URLs to Commit SHA A (`deploy/prepare_public_fixtures.ts`), commit snapshots, and capture Commit SHA B.
+  3. Live harness runs against Commit SHA B.
 - **Action**: In accordance with the deployment gate rules, execution stopped prior to live disposable scenario execution and canonical redeployment. No new canonical contract has been deployed.
 
 ---
@@ -319,9 +323,11 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 |---|---|---|---|---|
 | Contract Unit Tests | `tests/direct/test_reservecovenant.py` | 76 | **PASSED** | Constructor bounds, schema validation, deterministic challenges, future-dated reports, ineligible reserves, semantic outcome consistency, prompt injection defense, settlements, invariants |
 | Signer & Guard Tests | `tests/direct/test_signer_resolver.py` | 6 | **PASSED** | Autonomous keychain signer, fail-closed guards, secret cleanliness, factory resolution |
-| Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED** | Guarded by `RESERVECOVENANT_RUN_LIVE_TESTS=1`; 8 real scenarios implemented with disposable contracts |
-| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **SKIPPED** | Guarded by `RESERVECOVENANT_RUN_LIVE_TESTS=1`; 0 transactions submitted |
-| **Total Direct Tests** | | **82** | **100% PASS** | Zero regressions across all unit tests |
+| **Total Direct Tests** | | **82** | **100% PASS** | Zero regressions across existing unit test suite |
+| Offline Harness (Python) | `tests/harness/test_live_harness_offline.py` | 4 | **PASSED** | Signer separation logic, immutable fixture URL validation, scenario specifications (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 5 checks | **PASSED** | Pure offline harness validation, signer distinctness, dry-run fixture preparation (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (gated by fixture publication) |
+| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (0 transactions submitted) |
 
 ---
 
@@ -332,26 +338,32 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 npm ci
 pip install -r requirements.txt
 
-# 2. Run GenVM AST linter and semantic validator
+# 2. Run GenVM AST linter and semantic validator (fail-closed runner)
 npm run lint:contract
 
-# 3. Verify ABI schema extraction and byte-for-byte parity
-npm run schema
+# 3. Verify ABI schema byte-for-byte parity without mutating tracked files
+npm run schema:check
 
-# 4. Run direct unit tests (82 tests across contract and signer)
+# 4. Run direct unit tests (exact existing 82 tests)
 npm run test:direct
 
-# 5. Verify live integration skips safely without opt-in (0 transactions)
+# 5. Run offline harness & signer separation validation (zero network writes)
+npm run test:harness
+
+# 6. Verify fixture publication status (detects placeholder URLs)
+npm run fixtures:check
+
+# 7. Verify live integration skips safely without opt-in (0 transactions)
 npm run test:integration
 npm run test:integration:live
 
-# 6. Typecheck TypeScript deployment tooling
+# 8. Typecheck TypeScript deployment tooling
 npx tsc --noEmit
 
-# 7. Check on-chain deployment status (reports superseded state)
+# 9. Check on-chain deployment status (reports superseded state)
 npm run verify:onchain
 
-# 8. Smoke read public views from Studio Devnet
+# 10. Smoke read public views from Studio Devnet
 npm run smoke:read
 ```
 
@@ -366,11 +378,14 @@ ReserveCovenant/
 ├── deploy/
 │   ├── deployment_receipt.json    # Historical deployment metadata (superseded)
 │   ├── deployScript.ts            # Autonomous Studio Devnet deployer
+│   ├── fixture_url_validator.ts   # Strict immutable fixture URL validator
+│   ├── prepare_public_fixtures.ts # Two-commit fixture publication tool
 │   ├── run_canary.ts              # Disposable canary test
-│   ├── run_live_integration.ts   # Guarded live harness (8 real scenarios)
+│   ├── run_live_integration.ts   # Guarded live harness (distinct signers, fresh contracts)
 │   ├── schema.json                # ABI schema (15 methods)
 │   ├── signer.ts                  # OS keychain autonomous signer
 │   ├── smoke_read.ts              # Live contract view reader
+│   ├── test_harness_offline.ts    # Pure offline TypeScript harness validation
 │   └── verify_onchain.ts          # On-chain byte parity verifier
 ├── evidence/
 │   └── studio-dev.md              # Studio Devnet audit evidence & defect analysis
@@ -384,15 +399,20 @@ ReserveCovenant/
 │   ├── epoch-material-disclaimer.json
 │   ├── issuer-material-disclaimer.json
 │   └── issuer-upheld-evidence.json
+├── scripts/
+│   └── run_fail_closed.cjs        # Cross-platform fail-closed script runner
 ├── tests/
 │   ├── direct/
 │   │   ├── test_reservecovenant.py
 │   │   └── test_signer_resolver.py
+│   ├── harness/
+│   │   └── test_live_harness_offline.py
 │   └── integration/
+│       ├── fixture_url_validator.py
 │       └── test_reservecovenant_live.py
 ├── .github/
 │   └── workflows/
-│       └── verify.yml             # Prepared CI workflow
+│       └── verify.yml             # Prepared CI workflow (not publicly executed)
 ├── .gitignore
 ├── gltest.config.yaml
 ├── LICENSE                        # Apache-2.0

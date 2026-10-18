@@ -1,10 +1,16 @@
+# ==============================================================================
+# ReserveCovenant CI Workflow
+# STATUS: PREPARED — NOT PUBLICLY EXECUTED
+# (No GitHub remote or repository configured per local security boundary)
+# ==============================================================================
+
 name: Verify
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
 jobs:
   verify:
@@ -113,23 +119,45 @@ jobs:
               print('GenVM v0.6.0-rc8 runners extracted successfully.')
           EOF
 
-      - name: Lint and validate contract AST
-        run: genvm-lint check contracts/reservecovenant.py
-
-      - name: Verify ABI schema extraction and parity with tracked schema
+      - name: Verify immutable contract and schema hashes
         run: |
-          mkdir -p /tmp/schema_check
-          genvm-lint schema -o /tmp/schema_check/schema.json --json contracts/reservecovenant.py
-          diff -u --strip-trailing-cr deploy/schema.json /tmp/schema_check/schema.json
+          python - << 'EOF'
+          import hashlib
+          with open('contracts/reservecovenant.py', 'rb') as f:
+              c_hash = hashlib.sha256(f.read()).hexdigest()
+          with open('deploy/schema.json', 'rb') as f:
+              s_hash = hashlib.sha256(f.read()).hexdigest()
+          
+          exp_c = '590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a'
+          exp_s = '30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1'
+          assert c_hash == exp_c, f"Contract hash mismatch: {c_hash} != {exp_c}"
+          assert s_hash == exp_s, f"Schema hash mismatch: {s_hash} != {exp_s}"
+          print("Verified contract and schema hashes match expected invariants exactly.")
+          EOF
 
-      - name: Run direct contract unit tests
+      - name: Lint and validate contract AST
+        run: npm run lint:contract
+
+      - name: Verify ABI schema extraction and byte parity without modifying tracked files
+        run: npm run schema:check
+
+      - name: Run direct contract unit tests (82 tests)
         run: pytest tests/direct -v
 
-      - name: Verify integration suite skips cleanly without live opt-in
+      - name: Run offline live-harness validation (Signer separation, URL security, scenarios)
+        run: npm run test:harness
+
+      - name: Verify fixture publication check mode
+        run: npm run fixtures:check
+
+      - name: Verify fail-closed command runner on missing executable
+        run: node scripts/run_fail_closed.cjs test:missing-executable
+
+      - name: Verify Python integration suite skips cleanly without live opt-in
         run: pytest tests/integration/test_reservecovenant_live.py -v
 
       - name: Verify TypeScript live integration runner skips cleanly without live opt-in
-        run: npx tsx deploy/run_live_integration.ts
+        run: npm run test:integration:live
 
       - name: Typecheck TypeScript scripts
         run: npx tsc --noEmit

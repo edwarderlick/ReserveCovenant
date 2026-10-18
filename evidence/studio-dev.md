@@ -102,17 +102,71 @@ pytest tests/direct -v
 ```
 Output:
 ```
-============================= 82 passed in 4.23s ==============================
+============================= 82 passed in 4.49s ==============================
 ```
 - Total direct tests: **82 passed, 0 failed, 0 skipped** (76 in `test_reservecovenant.py`, 6 in `test_signer_resolver.py`).
-- Covers:
-  - Phase 1 repairs: syntactic snapshot validation of categories, deterministic INELIGIBLE_RESERVE breach and upheld paths;
-  - Phase 2 repairs: deterministic STALE_REPORT temporal policy against published_at, BREACH_REPORT_FUTURE_DATED, boundary timestamps;
-  - Phase 3 repairs: strict reason_code to outcome and evidence mapping, fail-closed handling of inconsistent outcomes or unevidenced breaches;
-  - Phase 4 repairs: strict lowercase hex SHA-256 rejection of uppercase, bounded citation lengths (16..500 chars);
-  - Constructor bounds, address validation, integer-only checks, pull-credit settlements, and accounting invariants.
+- All existing direct tests remain passing without regressions.
 
-### 4. Integration Test Opt-In Guard Verification
+### 4. Offline Live-Harness Validation Suite
+Command:
+```bash
+npm run test:harness
+```
+Output:
+```
+============================== 4 passed in 0.06s ==============================
+=== Running Offline Live-Harness Validation Suite ===
+[1/5] Testing Signer Separation...
+[2/5] Testing Immutable Fixture URL Validation...
+[3/5] Testing Scenario Specifications...
+[4/5] Testing Public Fixture Preparation Tool (Dry-Run)...
+[5/5] All offline validation checks passed.
+
+=================================================
+>>> OFFLINE_HARNESS_VALIDATION_PASS <<<
+Harness logic, signer separation, URL security,
+and scenario specifications verified offline.
+(Zero deployments, zero transactions submitted).
+=================================================
+```
+Result: **OFFLINE_HARNESS_VALIDATION_PASS**. Confirms:
+- Signer separation logic (self-challenge rejected before any network write);
+- Strict immutable fixture URL validation (commit-pinned accepted; mutable `/main/`, branches rejected);
+- Scenario call specifications (Scenario 4 calls `open_challenge` with `challengeType: "MATERIAL_DISCLAIMER"`);
+- Scenario 7 uses a fresh disposable instance for repeated resolution testing;
+- Public fixture preparation tool dry-run and canonical JSON serialization.
+
+### 5. Public Fixtures Check & Two-Commit Publication Flow
+Command:
+```bash
+npm run fixtures:check
+```
+Output:
+```
+=== ReserveCovenant Public Fixtures Preparation & Verification ===
+Local Evidence Files Verified: true
+All Fixtures Commit-Pinned:   false
+
+Notice: Current fixtures contain local/placeholder URLs pending public repository publication:
+ - epoch-compliant.json: mutable or invalid URL '.../main/...' (Mutable branch reference 'main' is strictly disallowed. Exact 40-hex commit SHA required.)
+ - epoch-coverage-shortfall.json: mutable or invalid URL '.../main/...'
+ - epoch-future-dated.json: mutable or invalid URL '.../main/...'
+ - epoch-ineligible-reserve.json: mutable or invalid URL '.../main/...'
+ - epoch-material-disclaimer.json: mutable or invalid URL '.../main/...'
+
+Status: BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION (expected prior to public repo publication).
+```
+**Two-Commit Publication Procedure**:
+1. **Stage A (Evidence Commit)**:
+   - Publish local evidence files (`issuer-upheld-evidence.json`, `issuer-material-disclaimer.json`, `challenger-unsupported-claim.json`, `challenger-material-disclaimer.json`) to GitHub repository.
+   - Capture Evidence Commit SHA A.
+2. **Stage B (Snapshot Commit)**:
+   - Run `deploy/prepare_public_fixtures.ts --owner <owner> --repo <repo> --commit-a <COMMIT_A> --write`.
+   - Script validates `COMMIT_A` (40 lowercase hex chars), verifies evidence file SHA-256 matches, pins nested URLs to `COMMIT_A`, and canonically formats JSON.
+   - Commit updated snapshot fixtures to GitHub and capture Snapshot Commit SHA B.
+   - Set `RESERVECOVENANT_FIXTURE_BASE_URL=https://raw.githubusercontent.com/<owner>/<repo>/<COMMIT_B>/fixtures`.
+
+### 6. Integration Test Opt-In Guard Verification
 Commands:
 ```bash
 pytest tests/integration/test_reservecovenant_live.py -v
@@ -120,20 +174,21 @@ npm run test:integration:live
 ```
 Output:
 ```
-============================= 8 skipped in 0.03s ==============================
+============================= 8 skipped in 0.08s ==============================
+=== ReserveCovenant Live Integration Test Suite ===
 [SKIP] Live tests require explicit opt-in via RESERVECOVENANT_RUN_LIVE_TESTS=1.
 No transactions were submitted to the network.
 ```
-Result: **All 8 live scenarios safely skipped before any network writes.**
+Result: **Zero deployments and zero network transactions submitted.**
 
-### 5. TypeScript Compilation
+### 7. TypeScript Compilation
 Command:
 ```bash
 npx tsc --noEmit
 ```
-Result: **Zero errors. Strict typechecking clean across all deployment scripts.**
+Result: **Zero errors. Strict typechecking clean across all scripts and tooling.**
 
-### 6. Historical Superseded Deployment (Pre-Repair)
+### 8. Historical Superseded Deployment (Pre-Repair)
 
 - **Contract Address**: `0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`
 - **Deployment Transaction Hash**: `0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`
@@ -144,7 +199,7 @@ Result: **Zero errors. Strict typechecking clean across all deployment scripts.*
 - **Receipt Location**: `deploy/deployment_receipt.json`
 - **Assessment**: **SUPERSEDED / NONCANONICAL**. Contains pre-repair code with known logic defects.
 
-### 7. On-Chain Source Parity Verification
+### 9. On-Chain Source Parity Verification
 Command:
 ```bash
 npm run verify:onchain
@@ -167,7 +222,7 @@ On-Chain SHA-256: b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf
 ```
 Result: **Identifies on-chain code as historical pre-repair code.** Correctly distinguishes the superseded deployment from the local repaired source.
 
-### 8. Historical Smoke Read (Superseded Contract)
+### 10. Historical Smoke Read (Superseded Contract)
 Command:
 ```bash
 npm run smoke:read
@@ -190,10 +245,10 @@ get_accounting():
   total_credits: 0
 ```
 
-### 9. Public Fixture Gate & Canonical Redeployment Status
+### 11. Public Fixture Gate, Signer Separation & Canonical Redeployment Status
 
-- **Live Test Implementation**: 8 real executable scenarios implemented in both Python (`tests/integration/test_reservecovenant_live.py`) and TypeScript (`deploy/run_live_integration.ts`), using fresh disposable contract deployments per scenario.
-- **Fixture Readiness**: All 9 disclosure and evidence fixtures prepared and validated locally in `fixtures/`.
+- **Distinct Signers**: Both Python and TypeScript test suites strictly enforce signer separation (`normalized issuer != normalized challenger`). Issuer is resolved from OS keychain; ephemeral challenger is created in process memory via public SDK APIs (`generatePrivateKey()` / `createAccount()`).
+- **Live Test Implementation**: 8 real executable scenarios implemented with fresh disposable contract deployments per scenario (including Scenario 7).
 - **Public Fixture Gate Rule**: GenLayer validators require public, immutable HTTPS endpoints for evidence fetching during consensus. Under the local repository boundary (no GitHub repository exists, no remote configured), fixtures cannot yet be published to an immutable commit-pinned URL.
 - **Gate Status**: **BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION**
 - **Canonical Redeployment**: **STOPPED SAFELY**. No new canonical deployment performed.
@@ -205,6 +260,8 @@ get_accounting():
 1. **Strict Product Boundary**: ReserveCovenant determines solely whether hash-pinned reserve evidence conforms to a frozen disclosure policy. It makes no claims and provides no certification that the issuer is solvent, reserves physically exist, assets are safe, a token is fully backed, or that it replaces an audit or legal advice.
 2. **Evidence Accessibility**: Semantic evaluation relies on publicly accessible HTTPS endpoints for fetching disclosure documents during resolution. If an evidence URL goes down, fails SSL handshake, or hash check fails, consensus logic fails closed to `INCONCLUSIVE` rather than assuming breach.
 3. **Validator LLM Adjudication**: While validator reasoning is constrained by strict prompt delimiters and a rigid schema, natural language interpretation is probabilistic. Multi-validator consensus and fail-closed schemas mitigate prompt injection and hallucinations.
-4. **Lifetime Epoch Bound**: Storage is constrained to a maximum of 12 lifetime reporting epochs per contract deployment to prevent state bloat on the GenVM network.
-5. **Citation Exactness**: Semantic challenges require the cited text to exist literally (16..500 characters) within the hash-verified evidence documents; paraphrased or inferred citations are treated as unsupported and resolve `UPHELD`.
+4. **Placeholder Fixture URLs**: Current local snapshot fixtures contain placeholder URLs pending public repository publication and the Two-Commit publication flow. Live validator consensus testing is not claimed.
+5. **Lifetime Epoch Bound**: Storage is constrained to a maximum of 12 lifetime reporting epochs per contract deployment to prevent state bloat on the GenVM network.
+6. **Citation Exactness**: Semantic challenges require the cited text to exist literally (16..500 characters) within the hash-verified evidence documents; paraphrased or inferred citations are treated as unsupported and resolve `UPHELD`.
+
 
