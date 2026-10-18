@@ -1,0 +1,161 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+      GENVM_VERSION: "genlayerlabs-genvm-manager-v0.6.0-rc8"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Cache GenVM SDK runners
+        uses: actions/cache@v4
+        id: genvm-cache
+        with:
+          path: ~/.cache/genvm-linter
+          key: genvm-v0.6.0-rc8-sdk-runners-v1
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Setup GenVM v0.6.0-rc8 SDK runners
+        if: steps.genvm-cache.outputs.cache-hit != 'true'
+        run: |
+          python - << 'EOF'
+          import urllib.request, tarfile, zipfile, io, shutil
+          from pathlib import Path
+
+          cache_dir = Path.home() / '.cache' / 'genvm-linter'
+          cache_dir.mkdir(parents=True, exist_ok=True)
+          
+          tarball_name = 'genvm-universal-genlayerlabs-genvm-manager-v0.6.0-rc8.tar.xz'
+          tarball_path = cache_dir / tarball_name
+          if not tarball_path.exists():
+              tarball_path.touch()
+          (cache_dir / f"{tarball_name}.index.json").write_text('{}')
+
+          ext_base = cache_dir / 'extracted' / 'genlayerlabs-genvm-manager-v0.6.0-rc8.tar'
+          ext_base_alt = cache_dir / 'extracted' / 'genlayerlabs-genvm-manager-v0.6.0-rc8'
+          py_lib_dir = ext_base / 'py-lib-genlayer-std' / 'kzr02ndm9et4qkmbqpq5djjt5sme2yt76n7sz1qbzax0knt6mam0'
+          py_genlayer_dir = ext_base / 'py-genlayer' / '5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng'
+
+          if not (py_lib_dir.exists() and py_genlayer_dir.exists()):
+              print('Downloading GenVM v0.6.0-rc8 universal runner bundle...')
+              url = 'https://github.com/genlayerlabs/genvm-manager/releases/download/v0.6.0-rc8/genvm-universal.tar.xz'
+              req = urllib.request.Request(url, headers={'User-Agent': 'ReserveCovenant-CI'})
+              with urllib.request.urlopen(req) as resp:
+                  tarball_data = resp.read()
+              print(f'Downloaded {len(tarball_data)} bytes. Extracting required runners...')
+              with tarfile.open(fileobj=io.BytesIO(tarball_data), mode='r:xz') as outer_tar:
+                  py_genlayer_dir.mkdir(parents=True, exist_ok=True)
+                  try:
+                      m1 = outer_tar.getmember('runners/py-genlayer/5j/ycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng.tar')
+                      f1 = outer_tar.extractfile(m1)
+                      with tarfile.open(fileobj=f1, mode='r:') as tf1:
+                          tf1.extractall(py_genlayer_dir)
+                  except KeyError:
+                      m1 = outer_tar.getmember('runners/py-genlayer/5j/ycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng.zip')
+                      raw1 = outer_tar.extractfile(m1).read()
+                      with zipfile.ZipFile(io.BytesIO(raw1)) as zf1:
+                          zf1.extractall(py_genlayer_dir)
+
+                  py_lib_dir.mkdir(parents=True, exist_ok=True)
+                  try:
+                      m2 = outer_tar.getmember('runners/py-lib-genlayer-std/kz/r02ndm9et4qkmbqpq5djjt5sme2yt76n7sz1qbzax0knt6mam0.tar')
+                      f2 = outer_tar.extractfile(m2)
+                      with tarfile.open(fileobj=f2, mode='r:') as tf2:
+                          tf2.extractall(py_lib_dir)
+                  except KeyError:
+                      m2 = outer_tar.getmember('runners/py-lib-genlayer-std/kz/r02ndm9et4qkmbqpq5djjt5sme2yt76n7sz1qbzax0knt6mam0.zip')
+                      raw2 = outer_tar.extractfile(m2).read()
+                      with zipfile.ZipFile(io.BytesIO(raw2)) as zf2:
+                          zf2.extractall(py_lib_dir)
+
+              py_shim = py_lib_dir / 'genlayer' / 'py'
+              py_shim.mkdir(parents=True, exist_ok=True)
+              (py_shim / '__init__.py').write_text('')
+              (py_shim / 'get_schema.py').write_text('from genlayer._internal.get_schema import *\n')
+
+              init_file = py_lib_dir / 'genlayer' / '__init__.py'
+              init_content = init_file.read_text()
+              if 'from .contract import Contract' not in init_content:
+                  init_file.write_text(init_content + '\nfrom .storage import allow as allow_storage, TreeMap, DynArray\nfrom .contract import Contract\n')
+
+              if not ext_base_alt.exists():
+                  shutil.copytree(ext_base, ext_base_alt)
+
+              import subprocess
+              subprocess.run(['chmod', '-R', '755', str(cache_dir)], check=False)
+              print('GenVM v0.6.0-rc8 runners extracted successfully.')
+          EOF
+
+      - name: Lint and validate contract AST
+        run: genvm-lint check contracts/reservecovenant.py
+
+      - name: Verify ABI schema extraction and parity with tracked schema
+        run: |
+          mkdir -p /tmp/schema_check
+          genvm-lint schema -o /tmp/schema_check/schema.json --json contracts/reservecovenant.py
+          diff -u --strip-trailing-cr deploy/schema.json /tmp/schema_check/schema.json
+
+      - name: Run direct contract unit tests
+        run: pytest tests/direct -v
+
+      - name: Verify integration suite skips cleanly without live opt-in
+        run: pytest tests/integration/test_reservecovenant_live.py -v
+
+      - name: Typecheck TypeScript scripts
+        run: npx tsc --noEmit
+
+      - name: Verify guarded deployment fails safely without private key on Linux CI
+        run: |
+          set +e
+          unset GENLAYER_PRIVATE_KEY
+          unset PRIVATE_KEY
+          npm run deploy:studio-dev > /tmp/deploy-guard.log 2>&1
+          deploy_status=$?
+          set -e
+
+          if [ "$deploy_status" -eq 0 ]; then
+            echo "::error::Deployment unexpectedly succeeded without an authorized signer"
+            exit 1
+          fi
+
+          if ! grep -Fq "could not be resolved from OS keychain" /tmp/deploy-guard.log; then
+            echo "::error::Deployment failed for an unexpected reason"
+            exit 1
+          fi
+
+          echo "Deployment correctly failed closed because no signer was available"
+
+      - name: Secret and tracked-file cleanliness checks
+        run: |
+          if git grep -i -E "PRIVATE_KEY\s*=\s*['\"][0-9a-fA-Fx]{32,}" -- ':!.github' ':!tests'; then
+            echo "::error::Found hardcoded private key literal"
+            exit 1
+          fi
+          echo "Tracked-file cleanliness verified"

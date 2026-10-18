@@ -1,0 +1,29 @@
+{
+  "name": "reservecovenant",
+  "version": "1.0.0",
+  "description": "Bonded Proof-of-Reserves Disclosure Covenant for Stablecoins and Custodial Assets on GenLayer",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "lint:contract": "genvm-lint check contracts/reservecovenant.py",
+    "schema": "genvm-lint schema -o deploy/schema.json --json contracts/reservecovenant.py",
+    "test": "npm run test:direct",
+    "test:direct": "pytest tests/direct -v",
+    "test:integration": "pytest tests/integration/test_reservecovenant_live.py -v",
+    "test:integration:live": "tsx deploy/run_live_integration.ts",
+    "canary": "tsx deploy/run_canary.ts",
+    "smoke:read": "tsx deploy/smoke_read.ts",
+    "deploy:studio-dev": "tsx deploy/deployScript.ts",
+    "verify:onchain": "tsx deploy/verify_onchain.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "genlayer-js": "2.0.0-rc.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "license": "Apache-2.0"
+}

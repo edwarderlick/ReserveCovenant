@@ -1,0 +1,231 @@
+{
+  "ctor": {
+    "params": [
+      [
+        "issuer",
+        "address"
+      ],
+      [
+        "treasury",
+        "address"
+      ],
+      [
+        "asset_id",
+        "string"
+      ],
+      [
+        "symbol",
+        "string"
+      ],
+      [
+        "policy_text",
+        "string"
+      ],
+      [
+        "eligible_categories",
+        [
+          {
+            "$rep": "string"
+          }
+        ]
+      ],
+      [
+        "min_coverage_bps",
+        "int"
+      ],
+      [
+        "max_report_age_seconds",
+        "int"
+      ],
+      [
+        "challenge_window_seconds",
+        "int"
+      ],
+      [
+        "resolution_timeout_seconds",
+        "int"
+      ],
+      [
+        "issuer_bond",
+        "int"
+      ],
+      [
+        "challenger_bond",
+        "int"
+      ],
+      [
+        "treasury_bps",
+        "int"
+      ]
+    ],
+    "kwparams": {}
+  },
+  "methods": {
+    "cancel_epoch": {
+      "params": [
+        [
+          "epoch_id",
+          "int"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": false,
+      "ret": "null",
+      "payable": false
+    },
+    "finalize_unchallenged": {
+      "params": [
+        [
+          "epoch_id",
+          "int"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": false,
+      "ret": "null",
+      "payable": false
+    },
+    "get_accounting": {
+      "params": [],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "dict"
+    },
+    "get_active_epoch": {
+      "params": [],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "dict"
+    },
+    "get_config": {
+      "params": [],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "dict"
+    },
+    "get_credit": {
+      "params": [
+        [
+          "account",
+          "address"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "int"
+    },
+    "get_current_status": {
+      "params": [],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "string"
+    },
+    "get_epoch": {
+      "params": [
+        [
+          "epoch_id",
+          "int"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "dict"
+    },
+    "get_history": {
+      "params": [
+        [
+          "index",
+          "int"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "dict"
+    },
+    "get_history_count": {
+      "params": [],
+      "kwparams": {},
+      "readonly": true,
+      "ret": "int"
+    },
+    "open_challenge": {
+      "params": [
+        [
+          "epoch_id",
+          "int"
+        ],
+        [
+          "challenge_type",
+          "string"
+        ],
+        [
+          "evidence_url",
+          "string"
+        ],
+        [
+          "evidence_sha256",
+          "string"
+        ],
+        [
+          "citation",
+          "string"
+        ],
+        [
+          "statement",
+          "string"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": false,
+      "ret": "null",
+      "payable": true
+    },
+    "publish_epoch": {
+      "params": [
+        [
+          "snapshot_url",
+          "string"
+        ],
+        [
+          "snapshot_sha256",
+          "string"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": false,
+      "ret": "null",
+      "payable": true
+    },
+    "resolve_challenge": {
+      "params": [
+        [
+          "epoch_id",
+          "int"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": false,
+      "ret": "null",
+      "payable": false
+    },
+    "timeout_challenge": {
+      "params": [
+        [
+          "epoch_id",
+          "int"
+        ]
+      ],
+      "kwparams": {},
+      "readonly": false,
+      "ret": "null",
+      "payable": false
+    },
+    "withdraw_credit": {
+      "params": [],
+      "kwparams": {},
+      "readonly": false,
+      "ret": "null",
+      "payable": false
+    }
+  }
+}
