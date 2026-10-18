@@ -128,6 +128,9 @@ jobs:
       - name: Verify integration suite skips cleanly without live opt-in
         run: pytest tests/integration/test_reservecovenant_live.py -v
 
+      - name: Verify TypeScript live integration runner skips cleanly without live opt-in
+        run: npx tsx deploy/run_live_integration.ts
+
       - name: Typecheck TypeScript scripts
         run: npx tsc --noEmit
 

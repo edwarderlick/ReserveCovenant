@@ -22,12 +22,55 @@
 
 ## Source & Artifact Hashes
 
+### Repaired Local Contract Source
 - **Contract Source**: `contracts/reservecovenant.py`
-  - **SHA-256**: `b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29`
-  - **Byte Count**: `57,749` bytes
-  - **Line Count**: `1,480` lines
+  - **SHA-256**: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a`
+  - **Byte Count**: `60,109` bytes
+  - **Line Count**: `1,521` lines
 - **ABI Schema**: `deploy/schema.json`
   - **SHA-256**: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1`
+  - **Byte Count**: `4,049` bytes
+  - **Line Count**: `231` lines
+
+### Historical Pre-Repair Deployment Hashes
+- **Deployed Address**: `0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`
+- **Historical Source SHA-256**: `b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29`
+- **Historical Byte Count**: `57,749` bytes
+- **Historical Line Count**: `1,480` lines
+- **Status**: **SUPERSEDED / NONCANONICAL**
+
+---
+
+## Contract Method Surface (Verified ABI)
+
+The ABI schema (`deploy/schema.json`) defines exactly **15 methods** (8 views, 7 writes):
+
+### 1. View Methods (Readonly)
+1. `get_config() -> dict`: Returns frozen deployment parameters.
+2. `get_current_status() -> str`: Returns state string (`UNINITIALIZED`, `OPEN`, `CHALLENGED`, etc.).
+3. `get_active_epoch() -> dict`: Returns active non-terminal epoch or empty dict.
+4. `get_epoch(epoch_id: int) -> dict`: Returns complete epoch record by ID.
+5. `get_history_count() -> int`: Returns count of stored historical terminal epochs.
+6. `get_history(index: int) -> dict`: Returns terminal epoch record at index.
+7. `get_credit(account: Address) -> int`: Returns pull-credit balance for an address in wei.
+8. `get_accounting() -> dict`: Returns balance, locked bonds, credits, and invariant boolean.
+
+### 2. Transaction Methods (State Mutating)
+1. `publish_epoch(snapshot_url: str, snapshot_sha256: str)` [Payable: `issuer_bond`]: Issuer publishes disclosure epoch.
+2. `cancel_epoch(epoch_id: int)`: Issuer cancels unchallenged open epoch; refunds bond.
+3. `finalize_unchallenged(epoch_id: int)`: Permissionless finalization after challenge window expires.
+4. `open_challenge(epoch_id: int, challenge_type: str, evidence_url: str, evidence_sha256: str, citation: str, statement: str)` [Payable: `challenger_bond`]: Challenger locks bond and opens challenge.
+5. `timeout_challenge(epoch_id: int)`: Permissionless recovery if resolution window expires; refunds bonds equally.
+6. `resolve_challenge(epoch_id: int)`: Permissionless execution of deterministic rules or validator LLM consensus.
+7. `withdraw_credit()`: Caller withdraws accumulated pull-credits.
+
+### Nonexistent Methods Clarification
+The following methods do **NOT** exist in the contract or ABI schema:
+- `get_active_challenge`: Active challenge details are queried via `get_active_epoch()`.
+- `get_epoch_history(limit)`: History is queried via `get_history_count()` and `get_history(index)`.
+- `get_dispute_record(epoch_id)`: Dispute records are embedded in `get_epoch(epoch_id)`.
+
+---
 
 ## Test Execution Results
 
@@ -48,7 +91,7 @@ Output:
 Commands:
 ```bash
 genvm-lint schema -o deploy/schema.json --json contracts/reservecovenant.py
-diff -u deploy/schema.json deploy/schema_check.json
+diff -u deploy/schema.json <(genvm-lint schema --json contracts/reservecovenant.py)
 ```
 Result: **Byte-for-byte exact schema parity verified.**
 
@@ -59,21 +102,29 @@ pytest tests/direct -v
 ```
 Output:
 ```
-============================= 68 passed in 11.56s =============================
+============================= 82 passed in 4.23s ==============================
 ```
-- Total tests: **68 passed, 0 failed, 0 skipped**.
-- Covers constructor bounds, address validation, snapshot schema parsing, float rejection, deterministic challenge paths, semantic consensus evaluation, prompt injection defense, pull-credit settlements, and invariant preservation.
+- Total direct tests: **82 passed, 0 failed, 0 skipped** (76 in `test_reservecovenant.py`, 6 in `test_signer_resolver.py`).
+- Covers:
+  - Phase 1 repairs: syntactic snapshot validation of categories, deterministic INELIGIBLE_RESERVE breach and upheld paths;
+  - Phase 2 repairs: deterministic STALE_REPORT temporal policy against published_at, BREACH_REPORT_FUTURE_DATED, boundary timestamps;
+  - Phase 3 repairs: strict reason_code to outcome and evidence mapping, fail-closed handling of inconsistent outcomes or unevidenced breaches;
+  - Phase 4 repairs: strict lowercase hex SHA-256 rejection of uppercase, bounded citation lengths (16..500 chars);
+  - Constructor bounds, address validation, integer-only checks, pull-credit settlements, and accounting invariants.
 
 ### 4. Integration Test Opt-In Guard Verification
-Command:
+Commands:
 ```bash
 pytest tests/integration/test_reservecovenant_live.py -v
+npm run test:integration:live
 ```
 Output:
 ```
-============================= 6 skipped in 0.04s ==============================
+============================= 8 skipped in 0.03s ==============================
+[SKIP] Live tests require explicit opt-in via RESERVECOVENANT_RUN_LIVE_TESTS=1.
+No transactions were submitted to the network.
 ```
-Result: **All 6 live scenarios safely skipped before any network writes.**
+Result: **All 8 live scenarios safely skipped before any network writes.**
 
 ### 5. TypeScript Compilation
 Command:
@@ -82,7 +133,7 @@ npx tsc --noEmit
 ```
 Result: **Zero errors. Strict typechecking clean across all deployment scripts.**
 
-### 6. Live Deployment Record (Studio Devnet Preview)
+### 6. Historical Superseded Deployment (Pre-Repair)
 
 - **Contract Address**: `0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`
 - **Deployment Transaction Hash**: `0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`
@@ -91,6 +142,7 @@ Result: **Zero errors. Strict typechecking clean across all deployment scripts.*
 - **Status**: `FINALIZED`
 - **Deployed At**: `2026-10-18T17:26:47.382Z`
 - **Receipt Location**: `deploy/deployment_receipt.json`
+- **Assessment**: **SUPERSEDED / NONCANONICAL**. Contains pre-repair code with known logic defects.
 
 ### 7. On-Chain Source Parity Verification
 Command:
@@ -101,20 +153,21 @@ Output:
 ```
 === ReserveCovenant On-Chain Contract Verification ===
 [1] Local contract source path: D:\ReserveCovenant\contracts\reservecovenant.py
-    Local source SHA-256:       b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29
-    Local character count:      57749
+    Local source SHA-256:       590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a
+    Local character count:      60109
 [2] Read contract address from D:\ReserveCovenant\deploy\deployment_receipt.json: 0x8C34faA54238b777cDe7e4373B267b0A6d0E4913
 [3] Target contract address: 0x8C34faA54238b777cDe7e4373B267b0A6d0E4913
 [4] Fetching on-chain contract code via gen_getContractCode...
 [5] On-chain source SHA-256:      b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29
     On-chain character count:     57749
 ----------------------------------------------------------------
->>> VERIFICATION RESULT: PASS <<<
-Byte-for-byte exact match verified between local file and on-chain contract code.
-Matching SHA-256: b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29
+>>> VERIFICATION RESULT: FAILED (SOURCE MISMATCH) <<<
+Local SHA-256:    590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a
+On-Chain SHA-256: b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29
 ```
+Result: **Identifies on-chain code as historical pre-repair code.** Correctly distinguishes the superseded deployment from the local repaired source.
 
-### 8. Live Contract Readback (Smoke Read)
+### 8. Historical Smoke Read (Superseded Contract)
 Command:
 ```bash
 npm run smoke:read
@@ -137,8 +190,21 @@ get_accounting():
   total_credits: 0
 ```
 
-## Known Limitations
+### 9. Public Fixture Gate & Canonical Redeployment Status
 
-1. **Evidence Accessibility**: Semantic evaluation relies on publicly accessible HTTPS endpoints for fetching disclosure documents during resolution. If an evidence URL goes down or fails SSL handshake, consensus fail-closed logic resolves as `INCONCLUSIVE` rather than assuming breach.
-2. **Lifetime Epoch Bound**: Storage is constrained to a maximum of 12 lifetime reporting epochs per contract deployment to prevent state bloat on the GenVM network.
-3. **Citation Exactness**: Semantic challenges require the cited text to exist literally within the hash-verified evidence documents; paraphrased or inferred citations are treated as unsupported and resolve `UPHELD`.
+- **Live Test Implementation**: 8 real executable scenarios implemented in both Python (`tests/integration/test_reservecovenant_live.py`) and TypeScript (`deploy/run_live_integration.ts`), using fresh disposable contract deployments per scenario.
+- **Fixture Readiness**: All 9 disclosure and evidence fixtures prepared and validated locally in `fixtures/`.
+- **Public Fixture Gate Rule**: GenLayer validators require public, immutable HTTPS endpoints for evidence fetching during consensus. Under the local repository boundary (no GitHub repository exists, no remote configured), fixtures cannot yet be published to an immutable commit-pinned URL.
+- **Gate Status**: **BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION**
+- **Canonical Redeployment**: **STOPPED SAFELY**. No new canonical deployment performed.
+
+---
+
+## Known Limitations & Boundaries
+
+1. **Strict Product Boundary**: ReserveCovenant determines solely whether hash-pinned reserve evidence conforms to a frozen disclosure policy. It makes no claims and provides no certification that the issuer is solvent, reserves physically exist, assets are safe, a token is fully backed, or that it replaces an audit or legal advice.
+2. **Evidence Accessibility**: Semantic evaluation relies on publicly accessible HTTPS endpoints for fetching disclosure documents during resolution. If an evidence URL goes down, fails SSL handshake, or hash check fails, consensus logic fails closed to `INCONCLUSIVE` rather than assuming breach.
+3. **Validator LLM Adjudication**: While validator reasoning is constrained by strict prompt delimiters and a rigid schema, natural language interpretation is probabilistic. Multi-validator consensus and fail-closed schemas mitigate prompt injection and hallucinations.
+4. **Lifetime Epoch Bound**: Storage is constrained to a maximum of 12 lifetime reporting epochs per contract deployment to prevent state bloat on the GenVM network.
+5. **Citation Exactness**: Semantic challenges require the cited text to exist literally (16..500 characters) within the hash-verified evidence documents; paraphrased or inferred citations are treated as unsupported and resolve `UPHELD`.
+

@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "lint:contract": "genvm-lint check contracts/reservecovenant.py",
-    "schema": "genvm-lint schema -o deploy/schema.json --json contracts/reservecovenant.py",
+    "lint:contract": "node -e \"const cp = require('child_process'); const res = cp.spawnSync('genvm-lint', ['check', 'contracts/reservecovenant.py'], { stdio: 'inherit', shell: true, env: { ...process.env, PYTHONUTF8: '1', GENVM_VERSION: 'genlayerlabs-genvm-manager-v0.6.0-rc8' } }); process.exit(res.status || 0);\"",
+    "schema": "node -e \"const cp = require('child_process'); const res = cp.spawnSync('genvm-lint', ['schema', '-o', 'deploy/schema.json', '--json', 'contracts/reservecovenant.py'], { stdio: 'inherit', shell: true, env: { ...process.env, PYTHONUTF8: '1', GENVM_VERSION: 'genlayerlabs-genvm-manager-v0.6.0-rc8' } }); process.exit(res.status || 0);\"",
     "test": "npm run test:direct",
     "test:direct": "pytest tests/direct -v",
     "test:integration": "pytest tests/integration/test_reservecovenant_live.py -v",

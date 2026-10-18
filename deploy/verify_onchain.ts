@@ -88,9 +88,16 @@ async function verifyOnChain(): Promise<void> {
     console.log("Byte-for-byte exact match verified between local file and on-chain contract code.");
     console.log(`Matching SHA-256: ${localSha256}`);
   } else {
-    console.error(">>> VERIFICATION RESULT: FAILED <<<");
+    console.error(">>> VERIFICATION RESULT: FAILED (SOURCE MISMATCH) <<<");
     console.error(`Local SHA-256:    ${localSha256}`);
     console.error(`On-Chain SHA-256: ${onChainSha256}`);
+    if (targetAddress.toLowerCase() === "0x8c34faa54238b777cde7e4373b267b0a6d0e4913") {
+      console.warn("\n[HISTORICAL RECORD]");
+      console.warn("Target address 0x8C34faA54238b777cDe7e4373B267b0A6d0E4913 is the known SUPERSEDED / NONCANONICAL deployment.");
+      console.warn("It contains pre-repair source code (SHA-256: b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29).");
+      console.warn("Local contracts/reservecovenant.py has been repaired (SHA-256: " + localSha256 + ").");
+      console.warn("Redeployment is currently BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION.\n");
+    }
     throw new Error("On-chain code does not match local contracts/reservecovenant.py");
   }
 }

@@ -243,7 +243,47 @@ To prevent unbounded state growth on the GenVM network:
 
 ---
 
+## Contract ABI & Method Surface
+
+The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined in `deploy/schema.json` and validated by GenVM AST linting:
+
+### Public Views (Readonly)
+
+| Method | Parameters | Return Type | Description |
+|---|---|---|---|
+| `get_config()` | None | `dict` | Returns immutable deployment configuration and parameters. |
+| `get_current_status()` | None | `str` | Returns the current state machine status (`UNINITIALIZED`, `OPEN`, `CHALLENGED`, etc.). |
+| `get_active_epoch()` | None | `dict` | Returns the active non-terminal epoch record, or empty dict if none. |
+| `get_epoch(epoch_id)` | `epoch_id: int` | `dict` | Returns complete epoch record by ID, including snapshot and challenge details. |
+| `get_history_count()` | None | `int` | Returns number of terminal epochs stored in FIFO history ring buffer (max 10). |
+| `get_history(index)` | `index: int` | `dict` | Returns historical terminal epoch record at 0-based index. |
+| `get_credit(account)` | `account: Address` | `int` | Returns outstanding pull-credit withdrawal balance for account in wei. |
+| `get_accounting()` | None | `dict` | Returns locked bonds, total credits, contract balance, and invariant boolean. |
+
+### Public Transactions (State Mutating)
+
+| Method | Parameters | Payable | Description |
+|---|---|---|---|
+| `publish_epoch(snapshot_url, snapshot_sha256)` | `snapshot_url: str`, `snapshot_sha256: str` | **Yes** (`issuer_bond`) | Issuer publishes a new disclosure epoch with hash-pinned snapshot. |
+| `cancel_epoch(epoch_id)` | `epoch_id: int` | No | Issuer cancels an open epoch before any challenge is filed; refunds bond. |
+| `finalize_unchallenged(epoch_id)` | `epoch_id: int` | No | Permissionless: Finalizes an open epoch after challenge window expires without challenge. |
+| `open_challenge(...)` | `epoch_id: int`, `challenge_type: str`, `evidence_url: str`, `evidence_sha256: str`, `citation: str`, `statement: str` | **Yes** (`challenger_bond`) | Challenger locks bond and opens a challenge against an active open epoch. |
+| `timeout_challenge(epoch_id)` | `epoch_id: int` | No | Permissionless: Recovers funds equally to both parties if resolution window times out. |
+| `resolve_challenge(epoch_id)` | `epoch_id: int` | No | Permissionless: Executes validator consensus or deterministic rules to resolve challenge. |
+| `withdraw_credit()` | None | No | Pull-credit withdrawal: Transfers caller's accumulated credit balance to caller. |
+
+> [!NOTE]
+> **Clarification on Nonexistent Methods**:
+> The methods `get_active_challenge`, `get_epoch_history(limit)`, and `get_dispute_record(epoch_id)` do **NOT** exist in the contract or ABI schema.
+> - Active challenge details are accessed via `get_active_epoch()`.
+> - Historic epochs are accessed via `get_history_count()` and `get_history(index)`.
+> - Dispute and challenge records are embedded directly within epoch data returned by `get_epoch(epoch_id)`.
+
+---
+
 ## Deployment & Verification Status
+
+### Historical Superseded Deployment (Pre-Repair)
 
 - **Network**: GenLayer Studio Devnet Preview (`studioDevnet`)
 - **Chain ID**: `61997`
@@ -251,9 +291,25 @@ To prevent unbounded state growth on the GenVM network:
 - **Runner**: `py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng`
 - **Contract Address**: `0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`
 - **Deployment Transaction**: `0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`
-- **Source Code SHA-256**: `b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29`
-- **ABI Schema SHA-256**: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1`
-- **On-Chain Byte-for-Byte Parity**: **VERIFIED** (`npm run verify:onchain`)
+- **Historical Source SHA-256**: `b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29`
+- **Status**: **SUPERSEDED / NONCANONICAL**
+  - This deployment contains pre-repair source code with known defects (unreachable ineligible reserve breach path, future-dated report non-breach under `STALE_REPORT`, loose semantic outcome mapping, pre-lowered hash validation).
+  - This historical contract must not be mutated or used as canonical.
+
+### Current Repaired Source Code
+
+- **Contract Path**: `contracts/reservecovenant.py`
+- **Source SHA-256**: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a`
+- **Byte Count**: `60,109` bytes
+- **Line Count**: `1,521` lines
+- **ABI Schema**: `deploy/schema.json`
+- **Schema SHA-256**: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1`
+
+### Canonical Deployment Gate
+
+- **Status**: `BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION`
+- **Rationale**: GenLayer validators require public, immutable HTTPS endpoints for evidence fetching during consensus. Under the local repository boundary (no remote configured, no push permitted), fixtures cannot yet be published to an immutable commit-pinned URL.
+- **Action**: In accordance with the deployment gate rules, execution stopped prior to live disposable scenario execution and canonical redeployment. No new canonical contract has been deployed.
 
 ---
 
@@ -261,10 +317,11 @@ To prevent unbounded state growth on the GenVM network:
 
 | Test Suite | File | Tests | Status | Scope |
 |---|---|---|---|---|
-| Contract Unit Tests | `tests/direct/test_reservecovenant.py` | 62 | **PASSED** | Constructor bounds, schema, life cycle, settlements, injections |
-| Signer & Guard Tests | `tests/direct/test_signer_resolver.py` | 6 | **PASSED** | Autonomous signer, fail-closed guards, secret cleanliness |
-| Live Integration (Mock) | `tests/integration/test_reservecovenant_live.py` | 6 | **SKIPPED** | Guarded by `RESERVECOVENANT_RUN_LIVE_TESTS=1` |
-| **Total Test Count** | | **74** | **100% PASS** | Zero regressions |
+| Contract Unit Tests | `tests/direct/test_reservecovenant.py` | 76 | **PASSED** | Constructor bounds, schema validation, deterministic challenges, future-dated reports, ineligible reserves, semantic outcome consistency, prompt injection defense, settlements, invariants |
+| Signer & Guard Tests | `tests/direct/test_signer_resolver.py` | 6 | **PASSED** | Autonomous keychain signer, fail-closed guards, secret cleanliness, factory resolution |
+| Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED** | Guarded by `RESERVECOVENANT_RUN_LIVE_TESTS=1`; 8 real scenarios implemented with disposable contracts |
+| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **SKIPPED** | Guarded by `RESERVECOVENANT_RUN_LIVE_TESTS=1`; 0 transactions submitted |
+| **Total Direct Tests** | | **82** | **100% PASS** | Zero regressions across all unit tests |
 
 ---
 
@@ -281,19 +338,20 @@ npm run lint:contract
 # 3. Verify ABI schema extraction and byte-for-byte parity
 npm run schema
 
-# 4. Run direct unit tests (68 tests)
+# 4. Run direct unit tests (82 tests across contract and signer)
 npm run test:direct
 
-# 5. Verify live integration skips safely without opt-in
+# 5. Verify live integration skips safely without opt-in (0 transactions)
 npm run test:integration
+npm run test:integration:live
 
 # 6. Typecheck TypeScript deployment tooling
 npx tsc --noEmit
 
-# 7. Verify byte-for-byte on-chain parity against Studio Devnet
+# 7. Check on-chain deployment status (reports superseded state)
 npm run verify:onchain
 
-# 8. Smoke read public views from the live deployment
+# 8. Smoke read public views from Studio Devnet
 npm run smoke:read
 ```
 
@@ -304,23 +362,26 @@ npm run smoke:read
 ```
 ReserveCovenant/
 ├── contracts/
-│   └── reservecovenant.py         # GenLayer Intelligent Contract
+│   └── reservecovenant.py         # Repaired GenLayer Intelligent Contract
 ├── deploy/
-│   ├── deployment_receipt.json    # Deployed contract metadata
+│   ├── deployment_receipt.json    # Historical deployment metadata (superseded)
 │   ├── deployScript.ts            # Autonomous Studio Devnet deployer
 │   ├── run_canary.ts              # Disposable canary test
-│   ├── run_live_integration.ts   # Guarded live harness
-│   ├── schema.json                # ABI schema
+│   ├── run_live_integration.ts   # Guarded live harness (8 real scenarios)
+│   ├── schema.json                # ABI schema (15 methods)
 │   ├── signer.ts                  # OS keychain autonomous signer
 │   ├── smoke_read.ts              # Live contract view reader
 │   └── verify_onchain.ts          # On-chain byte parity verifier
 ├── evidence/
-│   └── studio-dev.md              # Studio Devnet audit evidence
+│   └── studio-dev.md              # Studio Devnet audit evidence & defect analysis
 ├── fixtures/
 │   ├── challenger-material-disclaimer.json
 │   ├── challenger-unsupported-claim.json
 │   ├── epoch-compliant.json
 │   ├── epoch-coverage-shortfall.json
+│   ├── epoch-future-dated.json
+│   ├── epoch-ineligible-reserve.json
+│   ├── epoch-material-disclaimer.json
 │   ├── issuer-material-disclaimer.json
 │   └── issuer-upheld-evidence.json
 ├── tests/
@@ -331,7 +392,7 @@ ReserveCovenant/
 │       └── test_reservecovenant_live.py
 ├── .github/
 │   └── workflows/
-│       └── verify.yml             # CI workflow
+│       └── verify.yml             # Prepared CI workflow
 ├── .gitignore
 ├── gltest.config.yaml
 ├── LICENSE                        # Apache-2.0
@@ -346,3 +407,4 @@ ReserveCovenant/
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+

@@ -59,7 +59,7 @@ MAX_BOND_VALUE = 10**30
 PROJECT_ID_REGEX = re.compile(r"^[a-z0-9._-]+$")
 SYMBOL_REGEX = re.compile(r"^[A-Z0-9]{2,16}$")
 CATEGORY_REGEX = re.compile(r"^[a-z0-9_]{1,32}$")
-HEX_SHA256_REGEX = re.compile(r"^[a-f0-9]{64}$")
+HEX_SHA256_REGEX = re.compile(r"^[0-9a-f]{64}$")
 ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 
 ALLOWED_CHALLENGE_TYPES = {
@@ -112,6 +112,7 @@ ALLOWED_REASON_CODES = {
     },
     "STALE_REPORT": {
         "BREACH_REPORT_STALE",
+        "BREACH_REPORT_FUTURE_DATED",
         "UPHELD_REPORT_FRESH",
     },
     "COVERAGE_SHORTFALL": {
@@ -126,6 +127,42 @@ ALLOWED_REASON_CODES = {
         "INCONCLUSIVE_MODEL_SCHEMA_FAILURE",
         "UPHELD_CITATION_NOT_FOUND",
     },
+}
+
+REASON_CODE_TO_OUTCOME_AND_EVIDENCE = {
+    # OMITTED_LIABILITY
+    "BREACH_UNREPORTED_OBLIGATION_EVIDENCED": ("BREACH", True),
+    "UPHELD_NO_UNREPORTED_LIABILITY": ("UPHELD", False),
+    "INCONCLUSIVE_AMBIGUOUS_LIABILITY_EVIDENCE": ("INCONCLUSIVE", False),
+    # ENCUMBERED_ASSET
+    "BREACH_RESERVE_ENCUMBERED": ("BREACH", True),
+    "UPHELD_NO_ENCUMBRANCE_FOUND": ("UPHELD", False),
+    "INCONCLUSIVE_AMBIGUOUS_ENCUMBRANCE": ("INCONCLUSIVE", False),
+    # CUSTODY_SCOPE_MISMATCH
+    "BREACH_CUSTODIAL_MISMATCH": ("BREACH", True),
+    "UPHELD_CUSTODIAL_TERMS_CONSISTENT": ("UPHELD", False),
+    "INCONCLUSIVE_AMBIGUOUS_CUSTODY": ("INCONCLUSIVE", False),
+    # MATERIAL_DISCLAIMER
+    "BREACH_DISCLAIMER_INVALIDATES_RESERVES": ("BREACH", True),
+    "UPHELD_DISCLAIMER_BENIGN_OR_STANDARD": ("UPHELD", False),
+    "INCONCLUSIVE_AMBIGUOUS_DISCLAIMER": ("INCONCLUSIVE", False),
+    # INELIGIBLE_RESERVE (deterministic)
+    "BREACH_CATEGORY_DISALLOWED": ("BREACH", True),
+    "UPHELD_CATEGORIES_ELIGIBLE": ("UPHELD", False),
+    # STALE_REPORT (deterministic)
+    "BREACH_REPORT_STALE": ("BREACH", True),
+    "BREACH_REPORT_FUTURE_DATED": ("BREACH", True),
+    "UPHELD_REPORT_FRESH": ("UPHELD", False),
+    # COVERAGE_SHORTFALL (deterministic)
+    "BREACH_SHORTFALL_CONFIRMED": ("BREACH", True),
+    "UPHELD_COVERAGE_SUFFICIENT": ("UPHELD", False),
+    # SYSTEM
+    "INCONCLUSIVE_RESOLUTION_TIMEOUT": ("INCONCLUSIVE", False),
+    "INCONCLUSIVE_EVIDENCE_UNAVAILABLE": ("INCONCLUSIVE", False),
+    "INCONCLUSIVE_CITATION_NOT_FOUND": ("INCONCLUSIVE", False),
+    "INCONCLUSIVE_SCHEMA_PARSE_FAILURE": ("INCONCLUSIVE", False),
+    "INCONCLUSIVE_MODEL_SCHEMA_FAILURE": ("INCONCLUSIVE", False),
+    "UPHELD_CITATION_NOT_FOUND": ("UPHELD", False),
 }
 
 
@@ -164,13 +201,22 @@ def _to_strict_u256(val: object, name: str, min_v: int = 0, max_v: int = MAX_BON
     return u256(int_val)
 
 
+def _validate_hex_sha256(val: str, name: str) -> str:
+    """
+    Validate that val is strictly a 64-character lowercase hex string without pre-lowering.
+    """
+    if not isinstance(val, str) or not HEX_SHA256_REGEX.match(val):
+        raise gl.vm.UserError(f"Field '{name}' must be a 64-character lowercase hex string")
+    return val
+
+
 def _compute_sha256(content: str | bytes) -> str:
     if isinstance(content, str):
         content = content.encode("utf-8")
     return hashlib.sha256(content).hexdigest()
 
 
-def _parse_and_validate_snapshot(raw_json: str, frozen_categories: set[str]) -> tuple[dict, str]:
+def _parse_and_validate_snapshot(raw_json: str, frozen_categories: set[str] = None) -> tuple[dict, str]:
     """
     Strictly parse and validate an issuer reserve snapshot JSON string.
 
@@ -277,8 +323,8 @@ def _parse_and_validate_snapshot(raw_json: str, frozen_categories: set[str]) -> 
         seen_item_ids.add(i_id)
 
         cat = item["category"]
-        if not isinstance(cat, str) or cat not in frozen_categories:
-            raise gl.vm.UserError(f"reserve_items[{idx}] category '{cat}' is not in frozen eligible categories")
+        if not isinstance(cat, str) or len(cat) < 1 or len(cat) > 32 or not CATEGORY_REGEX.match(cat):
+            raise gl.vm.UserError(f"reserve_items[{idx}] category '{cat}' invalid format")
 
         amt = item["amount"]
         if not _is_strict_int(amt) or int(amt) < 0 or int(amt) > MAX_BOND_VALUE:
@@ -320,10 +366,9 @@ def _parse_and_validate_snapshot(raw_json: str, frozen_categories: set[str]) -> 
             raise gl.vm.UserError(f"evidence[{idx}] url must be HTTPS with length 8..512")
 
         sha = ev["sha256"]
-        if not isinstance(sha, str) or not HEX_SHA256_REGEX.match(sha.lower()):
-            raise gl.vm.UserError(f"evidence[{idx}] sha256 must be 64-character lowercase hex string")
+        _validate_hex_sha256(sha, f"evidence[{idx}] sha256")
 
-        canonical_evidence.append({"source_id": s_id, "url": url, "sha256": sha.lower()})
+        canonical_evidence.append({"source_id": s_id, "url": url, "sha256": sha})
 
     canonical_obj = {
         "as_of_unix": int(as_of),
@@ -704,8 +749,7 @@ class ReserveCovenant(gl.contract.Contract):
         if not isinstance(snapshot_url, str) or not snapshot_url.startswith("https://") or len(snapshot_url) < 8 or len(snapshot_url) > 512:
             raise gl.vm.UserError("snapshot_url must use HTTPS protocol and be 8..512 characters")
 
-        if not isinstance(snapshot_sha256, str) or not HEX_SHA256_REGEX.match(snapshot_sha256.lower()):
-            raise gl.vm.UserError("snapshot_sha256 must be a 64-character lowercase hex string")
+        _validate_hex_sha256(snapshot_sha256, "snapshot_sha256")
 
         now_ts = self._get_current_timestamp()
         c_deadline = now_ts + int(self.challenge_window_seconds)
@@ -716,7 +760,7 @@ class ReserveCovenant(gl.contract.Contract):
 
         self.active_epoch_label = f"epoch-{next_epoch_id}"
         self.active_snapshot_url = snapshot_url
-        self.active_snapshot_sha256 = snapshot_sha256.lower()
+        self.active_snapshot_sha256 = snapshot_sha256
         self.active_published_at = u256(now_ts)
         self.active_challenge_deadline = u256(c_deadline)
 
@@ -864,11 +908,10 @@ class ReserveCovenant(gl.contract.Contract):
         if not isinstance(evidence_url, str) or not evidence_url.startswith("https://") or len(evidence_url) < 8 or len(evidence_url) > 512:
             raise gl.vm.UserError("evidence_url must use HTTPS protocol and be 8..512 characters")
 
-        if not isinstance(evidence_sha256, str) or not HEX_SHA256_REGEX.match(evidence_sha256.lower()):
-            raise gl.vm.UserError("evidence_sha256 must be a 64-character lowercase hex string")
+        _validate_hex_sha256(evidence_sha256, "evidence_sha256")
 
-        if not isinstance(citation, str) or len(citation) < 1 or len(citation) > 500:
-            raise gl.vm.UserError("citation must be a string with length 1..500 characters")
+        if not isinstance(citation, str) or len(citation) < 16 or len(citation) > 500:
+            raise gl.vm.UserError("citation must be a string with length 16..500 characters")
 
         if not isinstance(statement, str) or len(statement) < 1 or len(statement) > 1000:
             raise gl.vm.UserError("statement must be a string with length 1..1000 characters")
@@ -878,7 +921,7 @@ class ReserveCovenant(gl.contract.Contract):
         self.active_challenger = caller
         self.active_challenge_type = challenge_type
         self.active_evidence_url = evidence_url
-        self.active_evidence_sha256 = evidence_sha256.lower()
+        self.active_evidence_sha256 = evidence_sha256
         self.active_citation = citation
         self.active_statement = statement
         self.active_challenged_at = u256(now_ts)
@@ -1038,8 +1081,14 @@ class ReserveCovenant(gl.contract.Contract):
 
             # Step 4: Deterministic challenge evaluation
             if ch_type == "STALE_REPORT":
-                is_stale = (pub_ts - as_of) > max_age
-                if is_stale:
+                if as_of > pub_ts:
+                    return {
+                        "outcome": "BREACH",
+                        "challenge_type": ch_type,
+                        "evidence_supported": True,
+                        "reason_code": "BREACH_REPORT_FUTURE_DATED",
+                    }
+                elif (pub_ts - as_of) > max_age:
                     return {
                         "outcome": "BREACH",
                         "challenge_type": ch_type,
@@ -1231,8 +1280,16 @@ class ReserveCovenant(gl.contract.Contract):
                     "reason_code": "INCONCLUSIVE_MODEL_SCHEMA_FAILURE",
                 }
 
-            # If evidence is not supported, outcome cannot be BREACH
-            if not ev_sup and m_outcome == "BREACH":
+            if r_code not in REASON_CODE_TO_OUTCOME_AND_EVIDENCE:
+                return {
+                    "outcome": "INCONCLUSIVE",
+                    "challenge_type": ch_type,
+                    "evidence_supported": False,
+                    "reason_code": "INCONCLUSIVE_MODEL_SCHEMA_FAILURE",
+                }
+
+            expected_outcome, expected_ev_sup = REASON_CODE_TO_OUTCOME_AND_EVIDENCE[r_code]
+            if m_outcome != expected_outcome or ev_sup != expected_ev_sup:
                 return {
                     "outcome": "INCONCLUSIVE",
                     "challenge_type": ch_type,

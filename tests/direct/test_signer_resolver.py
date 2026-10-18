@@ -18,7 +18,7 @@ import pytest
 from gltest import get_contract_factory
 from tests.integration.test_reservecovenant_live import get_live_signer
 
-CANONICAL_HASH = "b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29"
+CANONICAL_HASH = "590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a"
 SAMPLE_KEY = "0x" + "cd" * 32
 SAMPLE_ADDR = "0x40B38765696e3d5d8d9d834D8AaD4bB6e418E489"
 
