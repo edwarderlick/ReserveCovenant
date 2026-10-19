@@ -40,6 +40,10 @@ import {
   executeAndVerifyChallengerFunding,
   evaluateEconomicCleanup,
   buildExpectedCleanupManifest,
+  WriteOperationError,
+  ContractExecutionReceiptError,
+  normalizeConsensusStatus,
+  normalizeExecutionResult,
   type ExecWriteResult,
   type ExpectedCleanupTarget,
   type CleanupPartyResult,
@@ -400,23 +404,58 @@ async function runLiveIntegration(): Promise<void> {
       );
     }
 
-    const hash = await actingClient.writeContract({
-      address: addr,
-      functionName: fn,
-      args,
-      value: val,
-      fees: {
-        distribution: fees.distribution,
-        feeValue: fees.feeValue,
-        messageAllocations: fees.messageAllocations,
-      },
-    });
-    const receipt = await actingClient.waitForTransactionReceipt({ hash });
-    const summary = verifyReceiptExecution(receipt, `execWrite ${fn}`, fn);
+    let hash: Hash;
+    try {
+      hash = (await actingClient.writeContract({
+        address: addr,
+        functionName: fn,
+        args,
+        value: val,
+        fees: {
+          distribution: fees.distribution,
+          feeValue: fees.feeValue,
+          messageAllocations: fees.messageAllocations,
+        },
+      })) as Hash;
+    } catch (writeErr: unknown) {
+      throw new WriteOperationError({
+        message: `writeContract failed on '${fn}': ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
+        originalError: writeErr,
+      });
+    }
+
+    let receipt: unknown;
+    try {
+      receipt = await actingClient.waitForTransactionReceipt({ hash: hash as unknown as TransactionHash });
+    } catch (waitErr: unknown) {
+      throw new WriteOperationError({
+        message: `waitForTransactionReceipt failed on '${fn}' (tx ${hash}): ${waitErr instanceof Error ? waitErr.message : String(waitErr)}`,
+        transactionHash: hash,
+        originalError: waitErr,
+      });
+    }
+
+    let summary: ValidatedReceiptSummary;
+    try {
+      summary = verifyReceiptExecution(receipt, `execWrite ${fn}`, fn);
+    } catch (verifyErr: unknown) {
+      const rec = receipt && typeof receipt === "object" ? (receipt as Record<string, unknown>) : undefined;
+      const rawStatus = rec ? (rec.statusName !== undefined ? rec.statusName : rec.status) : undefined;
+      const rawResult = rec ? (rec.txExecutionResultName !== undefined ? rec.txExecutionResultName : rec.txExecutionResult) : undefined;
+      throw new WriteOperationError({
+        message: `verifyReceiptExecution failed on '${fn}' (tx ${hash}): ${verifyErr instanceof Error ? verifyErr.message : String(verifyErr)}`,
+        transactionHash: hash,
+        rawReceipt: receipt,
+        normalizedStatus: rawStatus !== undefined ? normalizeConsensusStatus(rawStatus) : undefined,
+        normalizedExecutionResult: rawResult !== undefined ? normalizeExecutionResult(rawResult) : undefined,
+        originalError: verifyErr,
+      });
+    }
+
     return {
       transactionHash: hash,
-      receiptStatus: summary.status,
-      executionResult: summary.executionResult,
+      receiptStatus: summary.status as "FINALIZED" | "ACCEPTED",
+      executionResult: summary.executionResult as "FINISHED_WITH_RETURN",
       receiptSummary: summary,
     };
   };
@@ -780,6 +819,37 @@ async function runLiveIntegration(): Promise<void> {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.warn(`[cleanup-error] Withdrawal failed for ${party} on ${contractAddress}: ${errMsg}`);
+      let failedTxHash: string | undefined;
+      let failedStatus: string | undefined;
+      let failedResult: string | undefined;
+      let failedSummary: ValidatedReceiptSummary | undefined;
+
+      if (err instanceof WriteOperationError) {
+        failedTxHash = err.transactionHash;
+        failedStatus = err.normalizedStatus;
+        failedResult = err.normalizedExecutionResult;
+        if (err.rawReceipt && failedTxHash) {
+          failedSummary = {
+            txHash: failedTxHash,
+            status: failedStatus || "UNKNOWN",
+            executionResult: failedResult || "UNKNOWN",
+            rawReceipt: err.rawReceipt,
+          };
+        }
+      } else if (err instanceof ContractExecutionReceiptError) {
+        failedTxHash = String(err.transactionHash);
+        failedStatus = err.consensusStatus;
+        failedResult = err.executionResult;
+        if (err.receipt) {
+          failedSummary = {
+            txHash: failedTxHash,
+            status: failedStatus,
+            executionResult: failedResult,
+            rawReceipt: err.receipt,
+          };
+        }
+      }
+
       cleanupRecords.push({
         scenarioId,
         contractAddress,
@@ -787,6 +857,10 @@ async function runLiveIntegration(): Promise<void> {
         status: "WITHDRAW_FAILED",
         expectedCredit: expectedCreditWei,
         observedCredit,
+        transactionHash: failedTxHash,
+        receiptStatus: failedStatus,
+        executionResult: failedResult,
+        receiptSummary: failedSummary,
         error: `Withdrawal failed: ${errMsg}`,
       });
       continue;
@@ -935,32 +1009,46 @@ async function runLiveIntegration(): Promise<void> {
       } else {
         const attemptedSweepAmount = preSweepBal - requiredFeeReserve;
         console.log(`[cleanup-sweep] Attempting sweep of ${attemptedSweepAmount.toString()} wei back to issuer...`);
-        const hash = await challengerClient.sendTransaction({
-          account: challengerAccount,
-          to: issuerSigner.account.address,
-          value: attemptedSweepAmount,
-          chain: null,
-        });
-        const receipt = await challengerClient.waitForTransactionReceipt({ hash: hash as unknown as TransactionHash });
-        const summary = verifyReceiptExecution(receipt, "challenger residual sweep", "sendTransaction");
-        const postSweepBal = await issuerClient.getBalance({
-          address: challengerAccount.address,
-        });
+        let hash: string | undefined;
+        try {
+          hash = await challengerClient.sendTransaction({
+            account: challengerAccount,
+            to: issuerSigner.account.address,
+            value: attemptedSweepAmount,
+            chain: null,
+          });
+          const receipt = await challengerClient.waitForTransactionReceipt({ hash: hash as unknown as TransactionHash });
+          const summary = verifyReceiptExecution(receipt, "challenger residual sweep", "sendTransaction");
+          const postSweepBal = await issuerClient.getBalance({
+            address: challengerAccount.address,
+          });
 
-        sweepRecord = {
-          disposition: "COMPLETED",
-          preSweepBalanceWei: preSweepBal,
-          estimatedFeeWei: feeVal,
-          attemptedSweepAmountWei: attemptedSweepAmount,
-          sweepTransactionHash: hash,
-          receiptStatus: summary.status,
-          executionResult: summary.executionResult,
-          receiptSummary: summary,
-          postSweepObservedResidualBalanceWei: postSweepBal,
-        };
+          sweepRecord = {
+            disposition: "COMPLETED",
+            preSweepBalanceWei: preSweepBal,
+            estimatedFeeWei: feeVal,
+            attemptedSweepAmountWei: attemptedSweepAmount,
+            sweepTransactionHash: hash,
+            receiptStatus: summary.status,
+            executionResult: summary.executionResult,
+            receiptSummary: summary,
+            postSweepObservedResidualBalanceWei: postSweepBal,
+          };
 
-        console.log(`[cleanup-sweep] Sweep completed with ${summary.status} and ${summary.executionResult} (tx ${hash}).`);
-        console.log(`[cleanup-sweep] Post-sweep observed residual balance (dust): ${postSweepBal.toString()} wei.`);
+          console.log(`[cleanup-sweep] Sweep completed with ${summary.status} and ${summary.executionResult} (tx ${hash}).`);
+          console.log(`[cleanup-sweep] Post-sweep observed residual balance (dust): ${postSweepBal.toString()} wei.`);
+        } catch (sweepErr: unknown) {
+          const msg = sweepErr instanceof Error ? sweepErr.message : String(sweepErr);
+          console.warn(`[cleanup-warning] Challenger residual sweep transaction failed: ${msg}`);
+          sweepRecord = {
+            disposition: "FAILED",
+            preSweepBalanceWei: preSweepBal,
+            estimatedFeeWei: feeVal,
+            attemptedSweepAmountWei: attemptedSweepAmount,
+            sweepTransactionHash: hash,
+            error: msg,
+          };
+        }
       }
     }
   } catch (err: unknown) {

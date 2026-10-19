@@ -520,7 +520,37 @@ export interface ValidatedReceiptSummary {
   status: string;
   executionResult: string;
   contractAddress?: string;
-  rawReceipt?: unknown;
+  rawReceipt: unknown;
+}
+
+/**
+ * Structured write operation error preserving transaction hash and raw receipt
+ * when submission succeeds but receipt retrieval or verification fails.
+ */
+export class WriteOperationError extends Error {
+  public readonly transactionHash?: string;
+  public readonly rawReceipt?: unknown;
+  public readonly normalizedStatus?: string;
+  public readonly normalizedExecutionResult?: string;
+  public readonly originalError?: unknown;
+
+  constructor(params: {
+    message: string;
+    transactionHash?: string;
+    rawReceipt?: unknown;
+    normalizedStatus?: string;
+    normalizedExecutionResult?: string;
+    originalError?: unknown;
+  }) {
+    super(params.message);
+    this.name = "WriteOperationError";
+    this.transactionHash = params.transactionHash;
+    this.rawReceipt = params.rawReceipt;
+    this.normalizedStatus = params.normalizedStatus;
+    this.normalizedExecutionResult = params.normalizedExecutionResult;
+    this.originalError = params.originalError;
+    Object.setPrototypeOf(this, WriteOperationError.prototype);
+  }
 }
 
 /**
@@ -955,7 +985,7 @@ export interface EvaluateCleanupOptions {
   cleanupRecords: CleanupPartyResult[];
   expectedTargets: ExpectedCleanupTarget[];
   expectedPlan: ScenarioTransactionPlan;
-  primaryScenariosStatus?: PrimaryScenariosStatus;
+  primaryScenariosStatus: PrimaryScenariosStatus;
   sweepRecord?: SweepResultRecord;
 }
 
@@ -977,38 +1007,113 @@ export interface EconomicCleanupReport {
 }
 
 /**
+ * Computes composite lookup key for expected cleanup target or record.
+ */
+export function getCleanupTargetKey(scenarioId: number, party: string, contractAddress: string): string {
+  return `${scenarioId}:${party}:${contractAddress.toLowerCase()}`;
+}
+
+/**
  * Pure evaluation function assessing economic cleanup completeness and combined live readiness.
  *
  * Strict manifest rules:
- * 1. Every expected target in the 13-target manifest must appear exactly once.
- * 2. No duplicate party/contract records.
- * 3. No unexpected party/contract records.
- * 4. Observed credit must equal expected credit.
- * 5. Actual receipt status must be ACCEPTED or FINALIZED with FINISHED_WITH_RETURN.
- * 6. Post-withdrawal credit must be strictly zero.
- * 7. Accounting invariant must be satisfied (true).
- * 8. All failed target addresses are preserved in unresolvedContractAddresses.
- * 9. Sweep disposition must be COMPLETED or NOT_REQUIRED_ZERO_BALANCE (when balance is exactly 0).
- * 10. Live readiness passes ONLY when primaryScenariosStatus is PRIMARY_SCENARIOS_PASS
- *     AND cleanup status is ECONOMIC_CLEANUP_PASS.
+ * 1. Every expected target in the manifest must appear exactly once.
+ * 2. Manifest internal parity against expectedPlan:
+ *    - unique entries
+ *    - challenger target count === challengerCleanupWithdrawalCount
+ *    - issuer target count === issuerCleanupWithdrawalCount
+ *    - challenger credit sum === expectedChallengerRecoverableCreditsWei
+ *    - issuer credit sum === expectedIssuerRecoverableCreditsWei
+ *    - total credit sum === expectedTotalContractCreditsWei
+ * 3. Complete target identity:
+ *    - scenarioId
+ *    - normalized contractAddress
+ *    - party
+ *    - expectedCredit === target.expectedCreditWei
+ *    - observedCredit === target.expectedCreditWei
+ * 4. Actual receipt evidence:
+ *    - non-empty transactionHash
+ *    - receiptSummary exists and is an object
+ *    - receiptSummary.rawReceipt exists and is an object
+ *    - verifyReceiptExecution(receiptSummary.rawReceipt) succeeds
+ *    - verified summary txHash matches transactionHash and receiptSummary.txHash
+ *    - verified summary status matches receiptStatus and receiptSummary.status
+ *    - verified summary executionResult matches executionResult and receiptSummary.executionResult
+ *    - status is ACCEPTED or FINALIZED
+ *    - executionResult is FINISHED_WITH_RETURN
+ * 5. Post-withdrawal credit must be strictly zero.
+ * 6. Accounting invariant must be satisfied (true).
+ * 7. All failed target addresses are preserved in unresolvedContractAddresses.
+ * 8. Sweep disposition:
+ *    - COMPLETED requires actual receipt revalidation, matching txHash/status/result,
+ *      and observed post-sweep balance.
+ *    - NOT_REQUIRED_ZERO_BALANCE requires challenger balance to be strictly zero.
+ *    - BLOCKED_INSUFFICIENT_FEE or FAILED blocks readiness fail-closed.
+ * 9. Combined readiness:
+ *    - primaryScenariosStatus is mandatory.
+ *    - LIVE_READINESS_PASS requires primaryScenariosStatus === PRIMARY_SCENARIOS_PASS
+ *      AND status === ECONOMIC_CLEANUP_PASS.
+ *    - Otherwise LIVE_READINESS_BLOCKED.
  */
 export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): EconomicCleanupReport {
   const {
     cleanupRecords,
     expectedTargets,
     expectedPlan,
-    primaryScenariosStatus = "PRIMARY_SCENARIOS_PASS",
+    primaryScenariosStatus,
     sweepRecord,
   } = options;
+
+  if (
+    !primaryScenariosStatus ||
+    (primaryScenariosStatus !== "PRIMARY_SCENARIOS_PASS" && primaryScenariosStatus !== "PRIMARY_SCENARIOS_FAIL")
+  ) {
+    throw new Error("primaryScenariosStatus is mandatory and must be explicitly specified");
+  }
+
+  // 1. Validate manifest internal uniqueness and parity against expectedPlan
+  const manifestTargetKeys = new Set<string>();
+  let manifestHasDuplicate = false;
+  let manifestChallengerCount = 0;
+  let manifestIssuerCount = 0;
+  let manifestChallengerCreditSum = 0n;
+  let manifestIssuerCreditSum = 0n;
+
+  for (const t of expectedTargets) {
+    const key = getCleanupTargetKey(t.scenarioId, t.party, t.contractAddress);
+    if (manifestTargetKeys.has(key)) {
+      manifestHasDuplicate = true;
+    }
+    manifestTargetKeys.add(key);
+
+    if (t.party === "challenger") {
+      manifestChallengerCount++;
+      manifestChallengerCreditSum += t.expectedCreditWei;
+    } else if (t.party === "issuer") {
+      manifestIssuerCount++;
+      manifestIssuerCreditSum += t.expectedCreditWei;
+    }
+  }
+
+  const manifestTotalCreditSum = manifestChallengerCreditSum + manifestIssuerCreditSum;
+
+  const manifestParityValid =
+    expectedTargets.length > 0 &&
+    !manifestHasDuplicate &&
+    manifestChallengerCount === Number(expectedPlan.challengerCleanupWithdrawalCount) &&
+    manifestIssuerCount === Number(expectedPlan.issuerCleanupWithdrawalCount) &&
+    manifestChallengerCreditSum === expectedPlan.expectedChallengerRecoverableCreditsWei &&
+    manifestIssuerCreditSum === expectedPlan.expectedIssuerRecoverableCreditsWei &&
+    manifestTotalCreditSum === expectedPlan.expectedTotalContractCreditsWei;
 
   let challengerWithdrawn = 0n;
   let issuerWithdrawn = 0n;
   const unresolvedAddresses: Set<Address> = new Set();
 
-  // Index expected targets by composite key: `${party}:${contractAddress.toLowerCase()}`
+  // Index expected targets by composite key
   const targetMap = new Map<string, ExpectedCleanupTarget>();
   for (const t of expectedTargets) {
-    const key = `${t.party}:${t.contractAddress.toLowerCase()}`;
+    const key = getCleanupTargetKey(t.scenarioId, t.party, t.contractAddress);
     targetMap.set(key, t);
   }
 
@@ -1016,17 +1121,17 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
   const seenRecordKeys = new Set<string>();
   let hasDuplicateRecord = false;
   let hasUnexpectedRecord = false;
-  let hasManifestDiscrepancy = false;
+  let hasManifestDiscrepancy = !manifestParityValid;
 
   for (const r of cleanupRecords) {
-    const key = `${r.party}:${r.contractAddress.toLowerCase()}`;
-    if (seenRecordKeys.has(key)) {
+    const recordKey = getCleanupTargetKey(r.scenarioId, r.party, r.contractAddress);
+    if (seenRecordKeys.has(recordKey)) {
       hasDuplicateRecord = true;
       unresolvedAddresses.add(r.contractAddress);
     }
-    seenRecordKeys.add(key);
+    seenRecordKeys.add(recordKey);
 
-    const target = targetMap.get(key);
+    const target = targetMap.get(recordKey);
     if (!target) {
       hasUnexpectedRecord = true;
       unresolvedAddresses.add(r.contractAddress);
@@ -1040,12 +1145,48 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
     }
 
     const obsCredit = r.observedCredit;
-    const creditMatches = obsCredit !== undefined && obsCredit === target.expectedCreditWei;
+    const creditMatches =
+      r.expectedCredit === target.expectedCreditWei &&
+      obsCredit !== undefined &&
+      obsCredit === target.expectedCreditWei;
     const postWithdrawalZero = r.postWithdrawalCredit === 0n;
     const invariantTrue = r.accountingInvariantSatisfied === true;
-    const receiptValid =
-      (r.receiptStatus === "FINALIZED" || r.receiptStatus === "ACCEPTED") &&
-      r.executionResult === "FINISHED_WITH_RETURN";
+
+    // Strict receipt evidence revalidation
+    let receiptValid = false;
+    if (
+      typeof r.transactionHash === "string" &&
+      r.transactionHash.trim().length > 0 &&
+      r.receiptSummary &&
+      typeof r.receiptSummary === "object" &&
+      r.receiptSummary.rawReceipt &&
+      typeof r.receiptSummary.rawReceipt === "object"
+    ) {
+      try {
+        const verified = verifyReceiptExecution(
+          r.receiptSummary.rawReceipt,
+          `cleanup withdrawal verification for ${recordKey}`
+        );
+        const txMatches =
+          verified.txHash === r.transactionHash &&
+          verified.txHash === r.receiptSummary.txHash;
+        const statusMatches =
+          verified.status === r.receiptStatus &&
+          verified.status === r.receiptSummary.status;
+        const execMatches =
+          verified.executionResult === r.executionResult &&
+          verified.executionResult === r.receiptSummary.executionResult;
+        const statusClean =
+          verified.status === "FINALIZED" || verified.status === "ACCEPTED";
+        const execClean = verified.executionResult === "FINISHED_WITH_RETURN";
+
+        if (txMatches && statusMatches && execMatches && statusClean && execClean) {
+          receiptValid = true;
+        }
+      } catch {
+        receiptValid = false;
+      }
+    }
 
     if (creditMatches && postWithdrawalZero && invariantTrue && receiptValid && obsCredit !== undefined) {
       if (r.party === "challenger") {
@@ -1061,7 +1202,7 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
 
   // Ensure every expected target in the manifest is present
   for (const t of expectedTargets) {
-    const key = `${t.party}:${t.contractAddress.toLowerCase()}`;
+    const key = getCleanupTargetKey(t.scenarioId, t.party, t.contractAddress);
     if (!seenRecordKeys.has(key)) {
       hasManifestDiscrepancy = true;
       unresolvedAddresses.add(t.contractAddress);
@@ -1078,7 +1219,7 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
   const allExpectedIssuerRecovered =
     issuerWithdrawn === expectedPlan.expectedIssuerRecoverableCreditsWei;
 
-  // Strict sweep evaluation with explicit boolean grouping
+  // Strict sweep evaluation with explicit boolean grouping and raw receipt revalidation
   const sweepRequired = expectedPlan.challengerSweepTransactionCount > 0n;
   let sweepOk = false;
   if (!sweepRequired) {
@@ -1089,11 +1230,42 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
     } else if (sweepRecord.disposition === "NOT_REQUIRED_ZERO_BALANCE") {
       sweepOk = (sweepRecord.preSweepBalanceWei === 0n) && (sweepRecord.postSweepObservedResidualBalanceWei === 0n);
     } else if (sweepRecord.disposition === "COMPLETED") {
-      const receiptValid =
-        (sweepRecord.receiptStatus === "FINALIZED" || sweepRecord.receiptStatus === "ACCEPTED") &&
-        (sweepRecord.executionResult === "FINISHED_WITH_RETURN");
+      let sweepReceiptValid = false;
+      if (
+        typeof sweepRecord.sweepTransactionHash === "string" &&
+        sweepRecord.sweepTransactionHash.trim().length > 0 &&
+        sweepRecord.receiptSummary &&
+        typeof sweepRecord.receiptSummary === "object" &&
+        sweepRecord.receiptSummary.rawReceipt &&
+        typeof sweepRecord.receiptSummary.rawReceipt === "object"
+      ) {
+        try {
+          const verifiedSweep = verifyReceiptExecution(
+            sweepRecord.receiptSummary.rawReceipt,
+            "completed sweep receipt verification"
+          );
+          const sweepTxMatches =
+            verifiedSweep.txHash === sweepRecord.sweepTransactionHash &&
+            verifiedSweep.txHash === sweepRecord.receiptSummary.txHash;
+          const sweepStatusMatches =
+            verifiedSweep.status === sweepRecord.receiptStatus &&
+            verifiedSweep.status === sweepRecord.receiptSummary.status;
+          const sweepExecMatches =
+            verifiedSweep.executionResult === sweepRecord.executionResult &&
+            verifiedSweep.executionResult === sweepRecord.receiptSummary.executionResult;
+          const sweepStatusClean =
+            verifiedSweep.status === "FINALIZED" || verifiedSweep.status === "ACCEPTED";
+          const sweepExecClean = verifiedSweep.executionResult === "FINISHED_WITH_RETURN";
+
+          if (sweepTxMatches && sweepStatusMatches && sweepExecMatches && sweepStatusClean && sweepExecClean) {
+            sweepReceiptValid = true;
+          }
+        } catch {
+          sweepReceiptValid = false;
+        }
+      }
       const postBalQueried = sweepRecord.postSweepObservedResidualBalanceWei !== undefined;
-      sweepOk = receiptValid && postBalQueried;
+      sweepOk = sweepReceiptValid && postBalQueried;
     } else {
       // BLOCKED_INSUFFICIENT_FEE or FAILED
       sweepOk = false;
@@ -1102,6 +1274,7 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
 
   const manifestSatisfied =
     expectedTargets.length > 0 &&
+    manifestParityValid &&
     !hasDuplicateRecord &&
     !hasUnexpectedRecord &&
     !hasManifestDiscrepancy &&

@@ -58,11 +58,14 @@ import {
   executeAndVerifyChallengerFunding,
   evaluateEconomicCleanup,
   buildExpectedCleanupManifest,
+  WriteOperationError,
+  getCleanupTargetKey,
   type ExpectedCleanupTarget,
   type CleanupPartyResult,
   type SweepResultRecord,
   type SupportedFundingClient,
   type PrimaryScenariosStatus,
+  type ValidatedReceiptSummary,
 } from "./harness_utils.js";
 import {
   evaluatePythonLauncherDisposition,
@@ -248,9 +251,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   );
 
   // --------------------------------------------------------------------------
-  // [8/18] Receipt Status/Result Copied from Actual Validated Summaries
+  // [8/18] Receipt Evidence Revalidation & Elimination of Manufactured Literals
   // --------------------------------------------------------------------------
-  console.log("[8/18] Testing Receipt Status/Result Copied From Actual Validated Summaries...");
+  console.log("[8/18] Testing Receipt Status/Result Copied From Actual Validated Summaries & Raw Evidence Revalidation...");
   // 1. ACCEPTED (5) and FINISHED_WITH_RETURN (1)
   const acceptedReceipt = {
     hash: "0x" + "1".repeat(64),
@@ -260,6 +263,7 @@ async function runOfflineHarnessTests(): Promise<void> {
   const summaryAccepted = verifyReceiptExecution(acceptedReceipt, "accepted test", "withdraw_credit");
   assert(summaryAccepted.status === "ACCEPTED", "Must preserve ACCEPTED from status 5");
   assert(summaryAccepted.executionResult === "FINISHED_WITH_RETURN", "Must preserve FINISHED_WITH_RETURN from result 1");
+  assert(summaryAccepted.rawReceipt !== undefined, "rawReceipt must be populated in validated summary");
 
   // 2. FINALIZED (7) and FINISHED_WITH_RETURN (1)
   const finalizedReceipt = {
@@ -270,13 +274,13 @@ async function runOfflineHarnessTests(): Promise<void> {
   const summaryFinalized = verifyReceiptExecution(finalizedReceipt, "finalized test", "withdraw_credit");
   assert(summaryFinalized.status === "FINALIZED", "Must preserve FINALIZED from status 7");
   assert(summaryFinalized.executionResult === "FINISHED_WITH_RETURN", "Must preserve FINISHED_WITH_RETURN from result 1");
+  assert(summaryFinalized.rawReceipt !== undefined, "rawReceipt must be populated in validated summary");
 
-  // 3. Proving hardcoded receipt evidence is impossible:
-  // Non-final or error receipts fail verifyReceiptExecution fail-closed
+  // 3. Proving non-final or error receipts fail verifyReceiptExecution fail-closed
   let pendingReceiptRejected = false;
   try {
     verifyReceiptExecution({ hash: "0x123", status: 1, txExecutionResult: 1 }, "pending");
-  } catch (err: unknown) {
+  } catch {
     pendingReceiptRejected = true;
   }
   assert(pendingReceiptRejected, "Pending receipt must be rejected fail-closed");
@@ -284,15 +288,29 @@ async function runOfflineHarnessTests(): Promise<void> {
   let errorReceiptRejected = false;
   try {
     verifyReceiptExecution({ hash: "0x123", status: 7, txExecutionResult: 2 }, "error");
-  } catch (err: unknown) {
+  } catch {
     errorReceiptRejected = true;
   }
   assert(errorReceiptRejected, "FINISHED_WITH_ERROR receipt must throw ContractExecutionReceiptError fail-closed");
 
+  // Helper to construct validated receipt summaries from raw receipts
+  function createMockReceiptSummary(
+    txHash: string,
+    statusNum: number = 7,
+    resultNum: number = 1
+  ): ValidatedReceiptSummary {
+    const rawReceipt = {
+      hash: txHash,
+      status: statusNum,
+      txExecutionResult: resultNum,
+    };
+    return verifyReceiptExecution(rawReceipt, "mock receipt verification", "withdraw_credit");
+  }
+
   // --------------------------------------------------------------------------
-  // [9/18] Exact 13-Target Manifest Matching (Repair 2)
+  // [9/18] Exact 13-Target Manifest Matching, Plan Parity & Complete Target Identity
   // --------------------------------------------------------------------------
-  console.log("[9/18] Testing Exact 13-Target Manifest Matching...");
+  console.log("[9/18] Testing Exact 13-Target Manifest Matching, Plan Parity & Complete Target Identity...");
   const dummyRecords = [
     { scenarioId: 1, contractAddress: "0x1111111111111111111111111111111111111111" as Address },
     { scenarioId: 2, contractAddress: "0x2222222222222222222222222222222222222222" as Address },
@@ -311,32 +329,41 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(chManifest.length === 6, `Expected 6 challenger targets (scenarios 1,2,3,4,6,7), got ${chManifest.length}`);
   assert(issManifest.length === 7, `Expected 7 issuer targets (scenarios 1,2,3,4,5,6,7), got ${issManifest.length}`);
 
-  const valid13Records: CleanupPartyResult[] = manifest13.map((target, idx) => ({
-    scenarioId: target.scenarioId,
-    contractAddress: target.contractAddress,
-    party: target.party,
-    status: "WITHDRAWN",
-    expectedCredit: target.expectedCreditWei,
-    observedCredit: target.expectedCreditWei,
-    transactionHash: `0x${(idx + 1).toString().padStart(64, "0")}`,
-    receiptStatus: idx % 2 === 0 ? "FINALIZED" : "ACCEPTED",
-    executionResult: "FINISHED_WITH_RETURN",
-    postWithdrawalCredit: 0n,
-    accountingInvariantSatisfied: true,
-  }));
+  // Construct valid 13 cleanup records with actual receipt evidence passed through verifyReceiptExecution
+  const valid13Records: CleanupPartyResult[] = manifest13.map((target, idx) => {
+    const txHash = `0x${(idx + 1).toString().padStart(64, "0")}`;
+    const summary = createMockReceiptSummary(txHash, idx % 2 === 0 ? 7 : 5, 1);
+    return {
+      scenarioId: target.scenarioId,
+      contractAddress: target.contractAddress,
+      party: target.party,
+      status: "WITHDRAWN",
+      expectedCredit: target.expectedCreditWei,
+      observedCredit: target.expectedCreditWei,
+      transactionHash: txHash,
+      receiptStatus: summary.status,
+      executionResult: summary.executionResult,
+      receiptSummary: summary,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    };
+  });
 
+  const sweepTxHash = "0x" + "a".repeat(64);
+  const sweepSummary = createMockReceiptSummary(sweepTxHash, 7, 1);
   const validSweep: SweepResultRecord = {
     disposition: "COMPLETED",
     preSweepBalanceWei: 1000000000000000n,
     estimatedFeeWei: 100000000000000n,
     attemptedSweepAmountWei: 800000000000000n,
-    sweepTransactionHash: "0x" + "a".repeat(64),
-    receiptStatus: "FINALIZED",
-    executionResult: "FINISHED_WITH_RETURN",
+    sweepTransactionHash: sweepTxHash,
+    receiptStatus: sweepSummary.status,
+    executionResult: sweepSummary.executionResult,
+    receiptSummary: sweepSummary,
     postSweepObservedResidualBalanceWei: 200000000000000n,
   };
 
-  // Case A: All 13 targets pass
+  // Case A: All 13 targets pass with mixed valid receipts
   const passReport = evaluateEconomicCleanup({
     cleanupRecords: valid13Records,
     expectedTargets: manifest13,
@@ -348,6 +375,196 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(passReport.liveReadinessStatus === "LIVE_READINESS_PASS", "Must produce LIVE_READINESS_PASS");
   assert(passReport.unresolvedContractAddresses.length === 0, "No unresolved addresses");
   assert(passReport.unresolvedCreditsWei === 0n, "Zero unresolved credits");
+
+  // Case A1: 100% FINALIZED raw receipts
+  const allFinalizedRecords: CleanupPartyResult[] = manifest13.map((target, idx) => {
+    const txHash = `0x${(idx + 100).toString().padStart(64, "0")}`;
+    const summary = createMockReceiptSummary(txHash, 7, 1);
+    return {
+      scenarioId: target.scenarioId,
+      contractAddress: target.contractAddress,
+      party: target.party,
+      status: "WITHDRAWN",
+      expectedCredit: target.expectedCreditWei,
+      observedCredit: target.expectedCreditWei,
+      transactionHash: txHash,
+      receiptStatus: summary.status,
+      executionResult: summary.executionResult,
+      receiptSummary: summary,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    };
+  });
+  const finalizedReport = evaluateEconomicCleanup({
+    cleanupRecords: allFinalizedRecords,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(finalizedReport.status === "ECONOMIC_CLEANUP_PASS", "All-FINALIZED raw receipts must produce ECONOMIC_CLEANUP_PASS");
+  assert(finalizedReport.liveReadinessStatus === "LIVE_READINESS_PASS", "All-FINALIZED raw receipts must produce LIVE_READINESS_PASS");
+
+  // Case A2: 100% ACCEPTED raw receipts
+  const allAcceptedRecords: CleanupPartyResult[] = manifest13.map((target, idx) => {
+    const txHash = `0x${(idx + 200).toString().padStart(64, "0")}`;
+    const summary = createMockReceiptSummary(txHash, 5, 1);
+    return {
+      scenarioId: target.scenarioId,
+      contractAddress: target.contractAddress,
+      party: target.party,
+      status: "WITHDRAWN",
+      expectedCredit: target.expectedCreditWei,
+      observedCredit: target.expectedCreditWei,
+      transactionHash: txHash,
+      receiptStatus: summary.status,
+      executionResult: summary.executionResult,
+      receiptSummary: summary,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    };
+  });
+  const acceptedSweepSummary = createMockReceiptSummary(sweepTxHash, 5, 1);
+  const acceptedSweep: SweepResultRecord = {
+    ...validSweep,
+    receiptStatus: acceptedSweepSummary.status,
+    executionResult: acceptedSweepSummary.executionResult,
+    receiptSummary: acceptedSweepSummary,
+  };
+  const acceptedReport = evaluateEconomicCleanup({
+    cleanupRecords: allAcceptedRecords,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: acceptedSweep,
+  });
+  assert(acceptedReport.status === "ECONOMIC_CLEANUP_PASS", "All-ACCEPTED raw receipts must produce ECONOMIC_CLEANUP_PASS");
+  assert(acceptedReport.liveReadinessStatus === "LIVE_READINESS_PASS", "All-ACCEPTED raw receipts must produce LIVE_READINESS_PASS");
+
+  // Negative Receipt Evidence Tests (Proving manufactured strings are rejected fail-closed):
+  // 1. Missing receiptSummary blocks readiness
+  const recMissingSummary = valid13Records.map((r, i) => i === 0 ? { ...r, receiptSummary: undefined } : r);
+  const repMissingSummary = evaluateEconomicCleanup({
+    cleanupRecords: recMissingSummary,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repMissingSummary.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Missing receiptSummary must block readiness");
+  assert(repMissingSummary.unresolvedContractAddresses.includes(manifest13[0].contractAddress), "Missing receiptSummary must leave address unresolved");
+
+  // 2. Missing rawReceipt blocks readiness
+  const recMissingRawReceipt = valid13Records.map((r, i) => i === 0 ? {
+    ...r,
+    receiptSummary: { ...r.receiptSummary!, rawReceipt: undefined as unknown },
+  } : r);
+  const repMissingRaw = evaluateEconomicCleanup({
+    cleanupRecords: recMissingRawReceipt,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repMissingRaw.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Missing rawReceipt must block readiness");
+
+  // 3. Manufactured FINALIZED strings with pending raw receipt
+  const recPendingRawReceipt = valid13Records.map((r, i) => i === 0 ? {
+    ...r,
+    receiptStatus: "FINALIZED",
+    executionResult: "FINISHED_WITH_RETURN",
+    receiptSummary: {
+      txHash: r.transactionHash as string,
+      status: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      rawReceipt: { hash: r.transactionHash, status: 1, txExecutionResult: 1 },
+    },
+  } : r);
+  const repPendingRaw = evaluateEconomicCleanup({
+    cleanupRecords: recPendingRawReceipt,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repPendingRaw.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Manufactured strings with pending raw receipt must block readiness");
+
+  // 4. Manufactured strings with error raw receipt
+  const recErrorRawReceipt = valid13Records.map((r, i) => i === 0 ? {
+    ...r,
+    receiptStatus: "FINALIZED",
+    executionResult: "FINISHED_WITH_RETURN",
+    receiptSummary: {
+      txHash: r.transactionHash as string,
+      status: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      rawReceipt: { hash: r.transactionHash, status: 7, txExecutionResult: 2 },
+    },
+  } : r);
+  const repErrorRaw = evaluateEconomicCleanup({
+    cleanupRecords: recErrorRawReceipt,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repErrorRaw.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Manufactured strings with error raw receipt must block readiness");
+
+  // 5. transactionHash mismatch
+  const recTxMismatch = valid13Records.map((r, i) => i === 0 ? {
+    ...r,
+    transactionHash: "0xdeadbeef" + "0".repeat(56),
+  } : r);
+  const repTxMismatch = evaluateEconomicCleanup({
+    cleanupRecords: recTxMismatch,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repTxMismatch.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "transactionHash mismatch must block readiness");
+
+  // 6. receiptSummary txHash mismatch
+  const recSummaryTxMismatch = valid13Records.map((r, i) => i === 0 ? {
+    ...r,
+    receiptSummary: { ...r.receiptSummary!, txHash: "0xbadbeef" + "0".repeat(57) },
+  } : r);
+  const repSummaryTxMismatch = evaluateEconomicCleanup({
+    cleanupRecords: recSummaryTxMismatch,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repSummaryTxMismatch.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "receiptSummary txHash mismatch must block readiness");
+
+  // 7. receipt status mismatch
+  const recStatusMismatch = valid13Records.map((r, i) => i === 0 ? {
+    ...r,
+    receiptStatus: r.receiptStatus === "FINALIZED" ? "ACCEPTED" : "FINALIZED",
+  } : r);
+  const repStatusMismatch = evaluateEconomicCleanup({
+    cleanupRecords: recStatusMismatch,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repStatusMismatch.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "receiptStatus mismatch must block readiness");
+
+  // 8. executionResult mismatch
+  const recExecMismatch = valid13Records.map((r, i) => i === 0 ? {
+    ...r,
+    executionResult: "FINISHED_WITH_ERROR",
+  } : r);
+  const repExecMismatch = evaluateEconomicCleanup({
+    cleanupRecords: recExecMismatch,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(repExecMismatch.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "executionResult mismatch must block readiness");
 
   // Case B: Missing target blocks readiness
   const missing12Records = valid13Records.slice(1); // Omit first target (Scenario 1 challenger)
@@ -393,6 +610,7 @@ async function runOfflineHarnessTests(): Promise<void> {
       transactionHash: "0x" + "f".repeat(64),
       receiptStatus: "FINALIZED",
       executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: createMockReceiptSummary("0x" + "f".repeat(64), 7, 1),
       postWithdrawalCredit: 0n,
       accountingInvariantSatisfied: true,
     },
@@ -443,10 +661,93 @@ async function runOfflineHarnessTests(): Promise<void> {
     "Mismatched credit address must be in unresolvedContractAddresses"
   );
 
+  // Case F: Wrong scenarioId blocks readiness
+  const wrongScenarioRecords = valid13Records.map((r, i) => i === 0 ? { ...r, scenarioId: 99 } : r);
+  const wrongScenarioReport = evaluateEconomicCleanup({
+    cleanupRecords: wrongScenarioRecords,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(wrongScenarioReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Wrong scenarioId must block readiness");
+  assert(wrongScenarioReport.unresolvedContractAddresses.includes(manifest13[0].contractAddress), "Wrong scenarioId address must be unresolved");
+
+  // Case G: Wrong expectedCredit blocks readiness
+  const wrongExpectedCreditRecords = valid13Records.map((r, i) => i === 0 ? { ...r, expectedCredit: 10000000000000000n } : r);
+  const wrongExpectedCreditReport = evaluateEconomicCleanup({
+    cleanupRecords: wrongExpectedCreditRecords,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(wrongExpectedCreditReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Wrong expectedCredit must block readiness");
+
+  // Case H: Omitted primaryScenariosStatus at runtime throws
+  let caughtOmittedPrimary = false;
+  try {
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      sweepRecord: validSweep,
+    } as unknown as any);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    caughtOmittedPrimary = msg.includes("primaryScenariosStatus is mandatory");
+  }
+  assert(caughtOmittedPrimary, "Omitted primaryScenariosStatus must throw fail-closed");
+
+  // Case I: Manifest count mismatch blocks readiness
+  const shortManifest = manifest13.slice(1);
+  const shortManifestReport = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: shortManifest,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(shortManifestReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Manifest count mismatch must block readiness");
+
+  // Case J: Manifest credit sum mismatch blocks readiness
+  const alteredManifest = manifest13.map((m, i) => i === 0 ? { ...m, expectedCreditWei: m.expectedCreditWei + 1000n } : m);
+  const alteredManifestReport = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: alteredManifest,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(alteredManifestReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Manifest sum mismatch must block readiness");
+
+  // Case K: Duplicate manifest entry blocks readiness
+  const dupManifest = [...manifest13, manifest13[0]];
+  const dupManifestReport = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: dupManifest,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(dupManifestReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Duplicate manifest entry must block readiness");
+
   // --------------------------------------------------------------------------
-  // [10/18] Discriminated Cleanup Failure Records (Repair 3)
+  // [10/18] Discriminated Cleanup Failure Records & Transaction Hash Preservation
   // --------------------------------------------------------------------------
-  console.log("[10/18] Testing Discriminated Cleanup Failure Records...");
+  console.log("[10/18] Testing Discriminated Cleanup Failure Records & Transaction Hash Preservation...");
+  // 1. Submitted transaction whose later receipt validation fails preserves hash in WITHDRAW_FAILED
+  const failTxHash = "0x" + "9".repeat(64);
+  const writeOpError = new WriteOperationError({
+    message: "verifyReceiptExecution failed: status was PENDING",
+    transactionHash: failTxHash,
+    rawReceipt: { hash: failTxHash, status: 1, txExecutionResult: 1 },
+    normalizedStatus: "UNKNOWN",
+    normalizedExecutionResult: "UNKNOWN",
+    originalError: new Error("pending"),
+  });
+  assert(writeOpError.transactionHash === failTxHash, "WriteOperationError preserves transaction hash");
+
   const failTypeRecords: CleanupPartyResult[] = [
     {
       scenarioId: 1,
@@ -463,7 +764,8 @@ async function runOfflineHarnessTests(): Promise<void> {
       status: "WITHDRAW_FAILED",
       expectedCredit: 14000000000000000n,
       observedCredit: 14000000000000000n,
-      error: "Gas limit exceeded during withdraw_credit",
+      transactionHash: writeOpError.transactionHash, // Preserved transaction hash!
+      error: writeOpError.message,
     },
     {
       scenarioId: 3,
@@ -475,6 +777,7 @@ async function runOfflineHarnessTests(): Promise<void> {
       transactionHash: "0x" + "3".repeat(64),
       receiptStatus: "FINALIZED",
       executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: createMockReceiptSummary("0x" + "3".repeat(64), 7, 1),
       postWithdrawalCredit: 1000n, // Non-zero residual credit
       error: "Post-withdrawal credit non-zero",
     },
@@ -488,6 +791,7 @@ async function runOfflineHarnessTests(): Promise<void> {
       transactionHash: "0x" + "4".repeat(64),
       receiptStatus: "FINALIZED",
       executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: createMockReceiptSummary("0x" + "4".repeat(64), 7, 1),
       postWithdrawalCredit: 0n,
       accountingInvariantSatisfied: false,
       error: "Accounting invariant false",
@@ -502,6 +806,10 @@ async function runOfflineHarnessTests(): Promise<void> {
     sweepRecord: validSweep,
   });
   assert(discReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Discriminated failures must block live readiness");
+  assert(
+    discReport.records.find((r) => r.status === "WITHDRAW_FAILED")?.transactionHash === failTxHash,
+    "Preserved transaction hash must exist in failure record"
+  );
   for (let i = 0; i < 4; i++) {
     assert(
       discReport.unresolvedContractAddresses.includes(dummyRecords[i].contractAddress),
@@ -560,10 +868,11 @@ async function runOfflineHarnessTests(): Promise<void> {
   });
   assert(repInvalidZeroSweep.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "NOT_REQUIRED_ZERO_BALANCE with positive balance must fail");
 
-  // 3. Successful sweep requires actual receipt and post-balance query
-  const incompleteSweep1: SweepResultRecord = {
+  // 3. Completed sweep with manufactured strings without receiptSummary blocks readiness
+  const sweepMissingSummary: SweepResultRecord = {
     disposition: "COMPLETED",
-    receiptStatus: "PENDING",
+    sweepTransactionHash: "0x" + "a".repeat(64),
+    receiptStatus: "FINALIZED",
     executionResult: "FINISHED_WITH_RETURN",
     postSweepObservedResidualBalanceWei: 100n,
   };
@@ -572,42 +881,125 @@ async function runOfflineHarnessTests(): Promise<void> {
       cleanupRecords: valid13Records,
       expectedTargets: manifest13,
       expectedPlan: plan,
+      primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+      sweepRecord: sweepMissingSummary,
+    }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "Sweep missing receiptSummary must block readiness"
+  );
+
+  // 4. Completed sweep with missing rawReceipt blocks readiness
+  const sweepMissingRaw: SweepResultRecord = {
+    disposition: "COMPLETED",
+    sweepTransactionHash: "0x" + "a".repeat(64),
+    receiptStatus: "FINALIZED",
+    executionResult: "FINISHED_WITH_RETURN",
+    receiptSummary: {
+      txHash: "0x" + "a".repeat(64),
+      status: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      rawReceipt: undefined as unknown,
+    },
+    postSweepObservedResidualBalanceWei: 100n,
+  };
+  assert(
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+      sweepRecord: sweepMissingRaw,
+    }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "Sweep missing rawReceipt must block readiness"
+  );
+
+  // 5. Completed sweep with txHash mismatch blocks readiness
+  const sweepTxMismatch: SweepResultRecord = {
+    disposition: "COMPLETED",
+    sweepTransactionHash: "0x" + "a".repeat(64),
+    receiptStatus: "FINALIZED",
+    executionResult: "FINISHED_WITH_RETURN",
+    receiptSummary: createMockReceiptSummary("0x" + "b".repeat(64), 7, 1),
+    postSweepObservedResidualBalanceWei: 100n,
+  };
+  assert(
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+      sweepRecord: sweepTxMismatch,
+    }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "Sweep txHash mismatch must block readiness"
+  );
+
+  // 6. Pending receipt in completed sweep blocks readiness
+  const incompleteSweep1: SweepResultRecord = {
+    disposition: "COMPLETED",
+    sweepTransactionHash: "0x" + "a".repeat(64),
+    receiptStatus: "PENDING",
+    executionResult: "FINISHED_WITH_RETURN",
+    receiptSummary: {
+      txHash: "0x" + "a".repeat(64),
+      status: "PENDING",
+      executionResult: "FINISHED_WITH_RETURN",
+      rawReceipt: { hash: "0x" + "a".repeat(64), status: 1, txExecutionResult: 1 },
+    },
+    postSweepObservedResidualBalanceWei: 100n,
+  };
+  assert(
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
       sweepRecord: incompleteSweep1,
     }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
     "Pending receipt in COMPLETED sweep must block readiness"
   );
 
+  // 7. Missing post-balance query in completed sweep blocks readiness
   const incompleteSweep2: SweepResultRecord = {
     disposition: "COMPLETED",
+    sweepTransactionHash: sweepTxHash,
     receiptStatus: "FINALIZED",
     executionResult: "FINISHED_WITH_RETURN",
-    postSweepObservedResidualBalanceWei: undefined, // Missing post balance query!
+    receiptSummary: sweepSummary,
+    postSweepObservedResidualBalanceWei: undefined,
   };
   assert(
     evaluateEconomicCleanup({
       cleanupRecords: valid13Records,
       expectedTargets: manifest13,
       expectedPlan: plan,
+      primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
       sweepRecord: incompleteSweep2,
     }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
     "Missing post-balance query in COMPLETED sweep must block readiness"
   );
 
-  // 4. Missing sweep record blocks readiness when sweep is expected
+  // 8. Missing sweep record blocks readiness when sweep is expected
   assert(plan.challengerSweepTransactionCount > 0n, "Plan includes sweep");
   const missingSweepRep = evaluateEconomicCleanup({
     cleanupRecords: valid13Records,
     expectedTargets: manifest13,
     expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
     sweepRecord: undefined,
   });
   assert(missingSweepRep.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Missing sweep record must block readiness");
 
-  // 5. FINISHED_WITH_ERROR sweep blocks readiness
+  // 9. FINISHED_WITH_ERROR sweep blocks readiness
   const errorSweep: SweepResultRecord = {
     disposition: "COMPLETED",
+    sweepTransactionHash: "0x" + "e".repeat(64),
     receiptStatus: "FINALIZED",
     executionResult: "FINISHED_WITH_ERROR",
+    receiptSummary: {
+      txHash: "0x" + "e".repeat(64),
+      status: "FINALIZED",
+      executionResult: "FINISHED_WITH_ERROR",
+      rawReceipt: { hash: "0x" + "e".repeat(64), status: 7, txExecutionResult: 2 },
+    },
     postSweepObservedResidualBalanceWei: 100n,
   };
   assert(
@@ -615,12 +1007,13 @@ async function runOfflineHarnessTests(): Promise<void> {
       cleanupRecords: valid13Records,
       expectedTargets: manifest13,
       expectedPlan: plan,
+      primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
       sweepRecord: errorSweep,
     }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
     "FINISHED_WITH_ERROR sweep must block readiness"
   );
 
-  // 6. Thrown sweep produces FAILED disposition and blocks readiness
+  // 10. Thrown sweep produces FAILED disposition and blocks readiness
   const failedSweep: SweepResultRecord = {
     disposition: "FAILED",
     error: "Network connection refused",
@@ -630,6 +1023,7 @@ async function runOfflineHarnessTests(): Promise<void> {
       cleanupRecords: valid13Records,
       expectedTargets: manifest13,
       expectedPlan: plan,
+      primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
       sweepRecord: failedSweep,
     }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
     "FAILED sweep must block readiness"
@@ -690,6 +1084,7 @@ async function runOfflineHarnessTests(): Promise<void> {
     transactionHash: "0x" + "b".repeat(64),
     receiptStatus: "FINALIZED",
     executionResult: "FINISHED_WITH_RETURN",
+    receiptSummary: createMockReceiptSummary("0x" + "b".repeat(64), 7, 1),
     postWithdrawalCredit: 500n, // Non-zero remaining credit!
     accountingInvariantSatisfied: true,
   };
@@ -697,6 +1092,7 @@ async function runOfflineHarnessTests(): Promise<void> {
     cleanupRecords: [nonZeroCreditRecord],
     expectedTargets: manifest13,
     expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
     sweepRecord: validSweep,
   });
   assert(nonzeroReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Non-zero post-withdrawal credit must block live readiness");
