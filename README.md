@@ -324,11 +324,11 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 | Contract Unit Tests | `tests/direct/test_reservecovenant.py` | 76 | **PASSED** | Constructor bounds, schema validation, deterministic challenges, future-dated reports, ineligible reserves, semantic outcome consistency, prompt injection defense, settlements, invariants |
 | Signer & Guard Tests | `tests/direct/test_signer_resolver.py` | 6 | **PASSED** | Autonomous keychain signer, fail-closed guards, secret cleanliness, factory resolution |
 | **Total Direct Tests** | | **82** | **100% PASS** | Zero regressions across existing unit test suite |
-| Offline Harness (Python) | `tests/harness/test_live_harness_offline.py` | 13 | **PASSED** | Signer separation logic, distinct ephemeral challenger resolution, fail-closed guards, receipt-backed error classification (rejection of unstructured & infrastructure errors), session-scoped balance preflight (`OFFLINE_HARNESS_VALIDATION_PASS`) |
-| Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 12 checks | **PASSED** | Pure offline harness validation, signer distinctness, dynamic funding calculations, receipt-backed expected error classification across 10 scenarios, strict fixture check & prepublish modes (`OFFLINE_HARNESS_VALIDATION_PASS`) |
-| Live Integration Launcher (Python) | `deploy/run_python_live_integration.ts` | Orchestration | **SKIPPED (0 writes)** | OS keychain issuer, ephemeral funded challenger, in-memory child injection, safe zero-write default |
+| Offline Harness (Python) | `tests/harness/test_live_harness_offline.py` | 15 | **PASSED** | Signer separation logic, distinct ephemeral challenger resolution, fail-closed guards, receipt-backed error classification, session-scoped balance preflight, dynamic fee validation (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 14 checks | **PASSED** | Pure offline harness validation, authoritative SDK status mappings, dual-party credit recovery, dynamic funding without 7-bond heuristic, receipt verification, error classification across scenarios (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Live Integration Launcher (Python) | `deploy/run_python_live_integration.ts` | Orchestration | **DISABLED (Option B)** | Fail-closed guard (`BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED`); TypeScript harness is authoritative to protect ephemeral funds |
 | Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (gated by fixture publication) |
-| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (0 transactions submitted) |
+| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated with dual-party cleanup and measurable sweep; not live-executed (0 transactions submitted) |
 
 ---
 
@@ -338,7 +338,7 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 - **Immutable Hashes**:
   - Contract (`contracts/reservecovenant.py`): `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
   - Schema (`deploy/schema.json`): `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
-- **Live Harness Implementation**: Complete and offline-tested across 25 tests (13 Python + 12 TypeScript checks).
+- **Live Harness Implementation**: Complete and offline-tested across 29 tests (15 Python + 14 TypeScript checks).
 - **Public Fixtures Status**: Fixtures are not public; placeholder branch references remain pending remote publication.
 - **Live Validator Scenarios**: Real live validator scenarios have NOT run in this pass.
 - **Validator Consensus**: Validator consensus has NOT been demonstrated on Studio Devnet.

@@ -200,13 +200,32 @@ Result: **OFFLINE_HARNESS_VALIDATION_PASS** (25 tests passed: 13 Python in `test
    - Deployment estimate explicitly labeled as a conservative heuristic: `DEPLOY_FEE_HEURISTIC_MULTIPLIER = 3n`.
    - Fresh issuer balance check performed immediately before each deployment and write, aborting prior to submission if funds cannot cover that operation.
 
-6. **Ephemeral Challenger Funds Recovery & Cleanup**:
-   - Challenger transaction derivation updated to 14 total transactions (7 primary challenges + 6 cleanup withdrawals + 1 sweep).
-   - Disposable scenario bonds become pull credits inside disposable contracts.
-   - Cleanup routine in `deploy/run_live_integration.ts` withdraws available challenger pull credits from disposable contracts (Scenarios 1, 2, 3, 4 win 0.014 GEN each; Scenarios 6, 7 refund 0.005 GEN each; Scenario 5 is UPHELD; Scenario 8 is issuer-only).
-   - Residual externally held challenger GEN swept back to issuer via typed transfer, leaving only final transfer gas.
-   - Cleanup is decoupled from scenario pass/fail (cleanup failures never erase scenario evidence).
-   - Maximum possible stranded test GEN without cleanup: $4 \times 0.014 + 2 \times 0.005 + \text{gas} \approx 0.081\text{ GEN}$. With cleanup: 0 GEN.
+6. **Dual-Party Contract Credit Recovery & Economic Cleanup**:
+   - Transaction planning derives counts separately:
+     - `challengeBondTransactionCount`: 7
+     - `challengerSignedTransactionCount`: 14 (7 challenges + 6 cleanup withdrawals + 1 sweep)
+     - `challengerCleanupWithdrawalCount`: 6
+     - `challengerSweepTransactionCount`: 1
+     - `issuerCleanupWithdrawalCount`: 7
+     - `issuerSignedTransactionCount`: 26 (19 primary + 7 cleanup withdrawals)
+   - Because disposable contract instances configure `treasury == issuer`, scenarios 1–7 create both challenger and issuer pull credits. Before cleanup, contract credits are at least:
+     - Challenger recoverable credits: 0.066 GEN (66e15 wei) ($4 \times 0.014\text{ GEN} + 2 \times 0.005\text{ GEN}$)
+     - Issuer/treasury recoverable credits: 0.039 GEN (39e15 wei) ($4 \times 0.001\text{ GEN} + 1 \times 0.015\text{ GEN} + 2 \times 0.010\text{ GEN}$)
+     - Total contract credits: 0.105 GEN (105e15 wei) (excluding externally owned account residuals and fees).
+   - Dual-party cleanup routine in `deploy/run_live_integration.ts`:
+     1. Queries and withdraws every positive challenger credit with challenger signer.
+     2. Queries and withdraws every positive issuer credit with issuer signer.
+     3. Re-reads both credits after each withdrawal and strictly asserts 0.
+     4. Verifies accounting invariant (`get_accounting().invariant_satisfied == true`).
+     5. Sweeps challenger residual balance back to issuer, re-queries balance, and records the exact observed residual balance (dust) without falsely claiming zero stranded.
+   - Decoupled Readiness Semantics:
+     - `PRIMARY_SCENARIOS_PASS / FAIL`
+     - `ECONOMIC_CLEANUP_PASS / PARTIAL / FAIL`
+     - `LIVE_READINESS_PASS` only when both phases pass.
+     - Cleanup failures preserve primary scenario evidence but exit nonzero and block live readiness.
+   - Python Live Launcher Disposition:
+     - Disabled fail-closed under Option B with `BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED` to prevent allocating and abandoning ephemeral funds without receipt-verified cleanup.
+     - The TypeScript live harness (`deploy/run_live_integration.ts`) is the sole authoritative live execution path.
 
 ### 5. Public Fixtures Check & Prepublication Mode
 Commands:

@@ -169,19 +169,64 @@ def verify_challenger_balance_preflight_initial(
     _SESSION_INITIAL_CHALLENGER_PREFLIGHT_DONE = True
 
 
+def get_dynamic_fee_estimate_wei(env_var="RESERVECOVENANT_ESTIMATED_FEE_WEI", raw_val=None) -> int:
+    """
+    Parses and strictly validates the dynamic fee estimate injected from the launcher environment.
+    Fails closed if the variable is missing, empty, malformed, non-integer, zero, or negative.
+    """
+    raw = raw_val if raw_val is not None else os.environ.get(env_var)
+    if raw is None or not str(raw).strip():
+        pytest.fail(
+            f"BLOCKED_MISSING_FEE_ESTIMATE: Environment variable '{env_var}' is required for live transaction execution."
+        )
+    clean = str(raw).strip()
+    try:
+        fee_int = int(clean)
+    except Exception as exc:
+        pytest.fail(
+            f"BLOCKED_MALFORMED_FEE_ESTIMATE: Failed to parse '{env_var}' value '{clean}' as integer: {exc}"
+        )
+    if fee_int <= 0:
+        pytest.fail(
+            f"BLOCKED_INVALID_FEE_ESTIMATE: '{env_var}' must be a positive non-zero integer, got {fee_int}."
+        )
+    return fee_int
+
+
+def derive_dynamic_safety_margin_wei(estimated_fee: int) -> int:
+    """
+    Derives a documented, bounded safety margin for gas fee fluctuation during live execution.
+    Bounded to 2x the dynamic fee estimate (with a minimum floor of 50_000_000_000_000 wei / 0.00005 GEN).
+    """
+    if estimated_fee <= 0:
+        pytest.fail(
+            f"BLOCKED_INVALID_FEE_ESTIMATE: Cannot derive safety margin for non-positive fee: {estimated_fee}."
+        )
+    return max(estimated_fee * 2, 50_000_000_000_000)
+
+
 def verify_challenger_next_tx_balance(
     challenger_account,
     required_bond=DEFAULT_CHALLENGER_BOND,
-    estimated_fee=100_000_000_000_000,
-    safety_margin=200_000_000_000_000,
+    estimated_fee=None,
+    safety_margin=None,
     get_balance_fn=None,
 ):
     """
     Verifies that the challenger has sufficient balance on Studio Devnet for the UPCOMING operation only.
-    required = required_bond + estimated_fee + safety_margin (~0.0053 GEN).
-    Does not require the full-suite 0.035 GEN.
+    Uses dynamically injected fee estimate and bounded safety margin.
     Stops before network submission with BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE if balance is insufficient.
     """
+    if estimated_fee is None:
+        estimated_fee = get_dynamic_fee_estimate_wei()
+    elif estimated_fee <= 0:
+        pytest.fail(f"BLOCKED_INVALID_FEE_ESTIMATE: estimated_fee must be positive, got {estimated_fee}")
+
+    if safety_margin is None:
+        safety_margin = derive_dynamic_safety_margin_wei(estimated_fee)
+    elif safety_margin < 0:
+        pytest.fail(f"BLOCKED_INVALID_FEE_ESTIMATE: safety_margin cannot be negative, got {safety_margin}")
+
     if get_balance_fn is not None:
         bal = get_balance_fn(challenger_account.address)
     else:

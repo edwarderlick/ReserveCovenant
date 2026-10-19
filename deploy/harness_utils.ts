@@ -2,112 +2,279 @@
  * Live-Harness Utilities for ReserveCovenant.
  *
  * Implements pure, offline-testable utilities:
- * 1. Dynamic challenger and issuer funding calculations (BigInt throughout).
- * 2. Strict receipt verification requiring FINISHED_WITH_RETURN.
- * 3. Structured ContractExecutionReceiptError and receipt-backed expected-error validation.
- * 4. Strongly typed challenger funding execution and post-balance verification without 'any'.
+ * 1. Authoritative SDK status and execution result mappings from genlayer-js.
+ * 2. Accurate scenario transaction planning and dynamic funding calculations (BigInt throughout).
+ * 3. Strict receipt verification requiring FINISHED_WITH_RETURN and final consensus.
+ * 4. Structured ContractExecutionReceiptError and receipt-backed expected-error validation.
+ * 5. Strongly typed client interfaces and challenger funding execution without 'any'.
+ * 6. Economic cleanup evaluation and residual sweep measurement.
  */
 
 import { isSuccessful, createClient } from "genlayer-js";
-import { ExecutionResult, TransactionStatus } from "genlayer-js/types";
-import type { Address, Hash, Account } from "viem";
+import {
+  transactionsStatusNumberToName,
+  executionResultNumberToName,
+  TransactionStatus,
+  ExecutionResult,
+} from "genlayer-js/types";
+import type {
+  LeaderReceipt,
+  TransactionFeeEstimate,
+} from "genlayer-js/types";
+import type { Address, Hash, Account, Hex } from "viem";
 import type { ScenarioCallSpec } from "./run_live_integration.js";
 
 export type SupportedGenLayerClient = ReturnType<typeof createClient>;
 
 /**
+ * Structural receipt representation covering documented GenLayer transaction receipt fields.
+ * Replaces 'any' with typed runtime-narrowed properties.
+ */
+export interface GenLayerReceiptLike {
+  hash?: Hash | string;
+  transactionHash?: Hash | string;
+  status?: number | string;
+  statusName?: string;
+  txExecutionResult?: number | string;
+  txExecutionResultName?: string;
+  contractAddress?: Address | string | null;
+  recipient?: Address | string | null;
+  result?: unknown;
+  consensus_data?: {
+    leader_receipt?: LeaderReceipt | LeaderReceipt[] | unknown;
+    [key: string]: unknown;
+  };
+  errorMessage?: string;
+  error?: string;
+  contractErrorPayload?: string;
+  methodName?: string;
+  [key: string]: unknown;
+}
+
+/**
  * Narrow, strictly typed structural interface containing only the supported GenLayer client methods:
  * - sendTransaction;
  * - waitForTransactionReceipt;
- * - getBalance.
+ * - getBalance;
+ * - estimateTransactionFees.
  * Eliminates 'any' casts while preserving compile-time type safety.
  */
 export interface SupportedFundingClient {
-  sendTransaction: SupportedGenLayerClient["sendTransaction"];
-  waitForTransactionReceipt: SupportedGenLayerClient["waitForTransactionReceipt"];
-  getBalance: SupportedGenLayerClient["getBalance"];
+  sendTransaction(args: {
+    to: Address;
+    value: bigint;
+    account?: Account;
+    chain?: null;
+    [key: string]: unknown;
+  }): Promise<Hash>;
+  waitForTransactionReceipt(args: {
+    hash: Hash;
+    [key: string]: unknown;
+  }): Promise<GenLayerReceiptLike>;
+  getBalance(args: {
+    address: Address;
+    [key: string]: unknown;
+  }): Promise<bigint>;
+  estimateTransactionFees?(): Promise<TransactionFeeEstimate>;
 }
 
 // ============================================================================
-// 1. Dynamic Funding Calculation (Pure Functions, BigInt throughout)
+// 1. Transaction-Count & Dynamic Funding Models (Repair 2)
 // ============================================================================
+
+export interface ScenarioTransactionPlan {
+  // Challenger counts
+  challengeBondTransactionCount: bigint;
+  challengerCleanupWithdrawalCount: bigint;
+  challengerSweepTransactionCount: bigint;
+  challengerSignedTransactionCount: bigint;
+
+  // Issuer counts
+  primaryIssuerSignedTransactionCount: bigint;
+  issuerCleanupWithdrawalCount: bigint;
+  issuerSignedTransactionCount: bigint;
+
+  // Expected recoverable credits in disposable contracts
+  expectedChallengerRecoverableCreditsWei: bigint;
+  expectedIssuerRecoverableCreditsWei: bigint;
+  expectedTotalContractCreditsWei: bigint;
+}
+
+/**
+ * Derives the complete scenario transaction plan directly from scenario specifications
+ * and expected terminal outcomes.
+ *
+ * Credit and withdrawal rules in disposable contracts (treasury == issuer):
+ * - BREACHED (Scenarios 1..4):
+ *   - Challenger payout: challenger bond (0.005 GEN refund) + 90% issuer bond (0.009 GEN) = 0.014 GEN
+ *   - Treasury (issuer) payout: 10% issuer bond = 0.001 GEN
+ *   - Both parties have positive credit to withdraw.
+ * - UPHELD (Scenario 5):
+ *   - Issuer payout: issuer bond refund (0.010 GEN) + forfeited challenger bond (0.005 GEN) = 0.015 GEN
+ *   - Challenger payout: 0 GEN (no credit, no challenger withdrawal).
+ *   - Issuer has positive credit to withdraw.
+ * - INCONCLUSIVE (Scenarios 6..7):
+ *   - Challenger refund: 0.005 GEN
+ *   - Issuer refund: 0.010 GEN
+ *   - Both parties have positive credit to withdraw.
+ * - CANCELLED (Scenario 8):
+ *   - Issuer cancels and withdraws credit within Scenario 8; credit is 0 at scenario completion.
+ */
+export function deriveScenarioTransactionPlan(
+  specs: ScenarioCallSpec[],
+  includeCleanup: boolean = true,
+  bonds = {
+    issuerBond: 10000000000000000n, // 0.01 GEN
+    challengerBond: 5000000000000000n, // 0.005 GEN
+    treasuryBps: 1000n, // 10.00%
+  }
+): ScenarioTransactionPlan {
+  let challengeBondCount = 0n;
+  let challengerWithdrawCount = 0n;
+  let issuerWithdrawCount = 0n;
+  let expectedChallengerCredits = 0n;
+  let expectedIssuerCredits = 0n;
+
+  for (const s of specs) {
+    if (s.challengeType !== undefined && s.challengeType !== null) {
+      challengeBondCount += 1n;
+
+      if (includeCleanup) {
+        if (s.expectedFinalStatus === "BREACHED") {
+          const treasuryShare = (bonds.issuerBond * bonds.treasuryBps) / 10000n;
+          const challengerShare = bonds.challengerBond + (bonds.issuerBond - treasuryShare);
+          expectedChallengerCredits += challengerShare;
+          expectedIssuerCredits += treasuryShare;
+          challengerWithdrawCount += 1n;
+          issuerWithdrawCount += 1n;
+        } else if (s.expectedFinalStatus === "UPHELD") {
+          expectedIssuerCredits += bonds.issuerBond + bonds.challengerBond;
+          issuerWithdrawCount += 1n;
+        } else if (s.expectedFinalStatus === "INCONCLUSIVE") {
+          expectedChallengerCredits += bonds.challengerBond;
+          expectedIssuerCredits += bonds.issuerBond;
+          challengerWithdrawCount += 1n;
+          issuerWithdrawCount += 1n;
+        }
+      }
+    }
+  }
+
+  const sweepCount = includeCleanup && challengeBondCount > 0n ? 1n : 0n;
+  const challengerSignedCount = challengeBondCount + challengerWithdrawCount + sweepCount;
+
+  // Primary issuer non-deploy transactions:
+  // For each scenario: publish_epoch (1)
+  // For scenarios with challenge: resolve_challenge (1), except Scenario 7 has 2 resolves (1 success + 1 expected revert)
+  // For Scenario 8 (no challenge): cancel_epoch (1), withdraw_credit (2: 1 success + 1 expected revert)
+  let primaryIssuerTxCount = 0n;
+  for (const s of specs) {
+    primaryIssuerTxCount += 1n; // publish_epoch
+    if (s.challengeType !== undefined && s.challengeType !== null) {
+      if (s.scenarioId === 7) {
+        primaryIssuerTxCount += 2n;
+      } else {
+        primaryIssuerTxCount += 1n;
+      }
+    } else if (s.scenarioId === 8) {
+      primaryIssuerTxCount += 3n; // 1 cancel + 2 withdraw attempts
+    }
+  }
+
+  const issuerSignedCount = primaryIssuerTxCount + (includeCleanup ? issuerWithdrawCount : 0n);
+
+  return {
+    challengeBondTransactionCount: challengeBondCount,
+    challengerCleanupWithdrawalCount: includeCleanup ? challengerWithdrawCount : 0n,
+    challengerSweepTransactionCount: sweepCount,
+    challengerSignedTransactionCount: challengerSignedCount,
+    primaryIssuerSignedTransactionCount: primaryIssuerTxCount,
+    issuerCleanupWithdrawalCount: includeCleanup ? issuerWithdrawCount : 0n,
+    issuerSignedTransactionCount: issuerSignedCount,
+    expectedChallengerRecoverableCreditsWei: includeCleanup ? expectedChallengerCredits : 0n,
+    expectedIssuerRecoverableCreditsWei: includeCleanup ? expectedIssuerCredits : 0n,
+    expectedTotalContractCreditsWei: includeCleanup ? expectedChallengerCredits + expectedIssuerCredits : 0n,
+  };
+}
 
 /**
  * Derives the exact number of challenger-signed challenge transactions from scenario specs.
- * Each scenario with a defined challengeType requires one challenger-signed open_challenge transaction.
  */
 export function deriveChallengerTransactionCount(specs: ScenarioCallSpec[]): number {
-  return specs.filter((s) => s.challengeType !== undefined && s.challengeType !== null).length;
+  return Number(deriveScenarioTransactionPlan(specs, false).challengeBondTransactionCount);
 }
 
 /**
- * Derives the total number of challenger-signed transactions including cleanup withdrawals and final sweep:
- * - 7 primary open_challenge transactions (Scenarios 1..7)
- * - 6 pull-credit cleanup withdrawals (Scenarios 1, 2, 3, 4, 6, 7 produce challenger credit)
- * - 1 residual GEN sweep back to the issuer
- * Total = 14 challenger-signed transactions.
+ * Derives the total number of challenger-signed transactions including cleanup withdrawals and sweep.
  */
 export function deriveTotalChallengerTransactionCount(
   specs: ScenarioCallSpec[],
   includeCleanup: boolean = true
 ): number {
-  const challengeCount = deriveChallengerTransactionCount(specs);
-  if (!includeCleanup) {
-    return challengeCount;
-  }
-  // Scenarios 1..4 (BREACH: challenger payout), Scenarios 6..7 (INCONCLUSIVE: challenger bond refund).
-  // Scenario 5 is UPHELD (no challenger credit); Scenario 8 is issuer-only.
-  const cleanupWithdrawalCount = specs.filter((s) => {
-    return (
-      s.challengeType !== undefined &&
-      s.challengeType !== null &&
-      s.expectedFinalStatus !== "UPHELD"
-    );
-  }).length; // 6 withdrawals
-  const sweepTxCount = 1; // 1 final sweep back to issuer
-  return challengeCount + cleanupWithdrawalCount + sweepTxCount;
+  return Number(deriveScenarioTransactionPlan(specs, includeCleanup).challengerSignedTransactionCount);
 }
 
 export interface ChallengerFundingParams {
-  challengerTxCount: bigint;
-  bondPerTx: bigint;
+  challengeBondTransactionCount?: bigint;
+  challengerSignedTransactionCount?: bigint;
+  challengerBond?: bigint;
   estimatedFeePerTx: bigint;
   safetyMargin?: bigint;
+  // Backward-compatible aliases
+  challengerTxCount?: bigint;
+  bondPerTx?: bigint;
 }
 
 /**
- * Calculates the required challenger funding:
- * required_funding = (challengeTxCount * bondPerTx) + (totalTxCount * estimatedFeePerTx) + safetyMargin
- *
- * Bounded safety margin defaults to 20% of estimated challenger fees + 0.005 GEN (5e15 wei)
- * to absorb Devnet fee variance.
+ * Calculates the required challenger funding without hardcoded bond multipliers:
+ * challenge bonds = challengeBondTransactionCount * challengerBond
+ * challenger fees = challengerSignedTransactionCount * estimatedFeePerTx
+ * required_funding = challenge bonds + challenger fees + safetyMargin
  */
 export function calculateRequiredChallengerFunding(params: ChallengerFundingParams): bigint {
-  const { challengerTxCount, bondPerTx, estimatedFeePerTx } = params;
+  const challengeBondTransactionCount = params.challengeBondTransactionCount !== undefined
+    ? params.challengeBondTransactionCount
+    : (params.challengerTxCount !== undefined ? params.challengerTxCount : 0n);
 
-  if (challengerTxCount < 0n) {
-    throw new RangeError("challengerTxCount cannot be negative");
+  const challengerSignedTransactionCount = params.challengerSignedTransactionCount !== undefined
+    ? params.challengerSignedTransactionCount
+    : (params.challengerTxCount !== undefined ? params.challengerTxCount : challengeBondTransactionCount);
+
+  const challengerBond = params.challengerBond !== undefined
+    ? params.challengerBond
+    : (params.bondPerTx !== undefined ? params.bondPerTx : 0n);
+
+  const estimatedFeePerTx = params.estimatedFeePerTx;
+
+  if (challengeBondTransactionCount < 0n) {
+    throw new RangeError("challengeBondTransactionCount cannot be negative");
   }
-  if (bondPerTx < 0n) {
-    throw new RangeError("bondPerTx cannot be negative");
+  if (challengerSignedTransactionCount < 0n) {
+    throw new RangeError("challengerSignedTransactionCount cannot be negative");
+  }
+  if (challengerBond < 0n) {
+    throw new RangeError("challengerBond cannot be negative");
   }
   if (estimatedFeePerTx < 0n) {
     throw new RangeError("estimatedFeePerTx cannot be negative");
   }
 
-  // 7 challenge bonds
-  const totalBonds = 7n * bondPerTx;
-  const totalFees = challengerTxCount * estimatedFeePerTx;
+  if (challengeBondTransactionCount === 0n && challengerSignedTransactionCount === 0n) {
+    return 0n;
+  }
+
+  const challengeBonds = challengeBondTransactionCount * challengerBond;
+  const challengerFees = challengerSignedTransactionCount * estimatedFeePerTx;
 
   const safetyMargin = params.safetyMargin !== undefined
     ? params.safetyMargin
-    : (totalFees * 20n) / 100n + 5000000000000000n; // 0.005 GEN
+    : (challengerFees * 20n) / 100n + 5000000000000000n; // 0.005 GEN
 
   if (safetyMargin < 0n) {
     throw new RangeError("safetyMargin cannot be negative");
   }
 
-  return totalBonds + totalFees + safetyMargin;
+  return challengeBonds + challengerFees + safetyMargin;
 }
 
 /**
@@ -178,7 +345,78 @@ export function calculateRequiredIssuerBalance(req: IssuerBalanceRequirements): 
 }
 
 // ============================================================================
-// 2. Structured Contract Execution Error & Receipt Extraction (Phase 1 & Phase 2)
+// 2. Authoritative SDK Status Normalization (Repair 1)
+// ============================================================================
+
+/**
+ * Normalizes consensus status from receipt using authoritative SDK mappings.
+ * SDK authoritative mapping:
+ * - 5 = ACCEPTED
+ * - 7 = FINALIZED
+ * - 1 = PENDING
+ * - 8 = CANCELED
+ * Rejects pending, unknown, canceled, or malformed statuses fail-closed.
+ */
+export function normalizeConsensusStatus(rawStatus: unknown): string {
+  if (rawStatus === null || rawStatus === undefined) {
+    return "UNKNOWN";
+  }
+  if (typeof rawStatus === "number") {
+    const name = (transactionsStatusNumberToName as Record<number, string>)[rawStatus];
+    return name || "UNKNOWN";
+  }
+  if (typeof rawStatus === "string") {
+    const trimmed = rawStatus.trim();
+    if (trimmed === "") {
+      return "UNKNOWN";
+    }
+    const asNum = Number(trimmed);
+    if (!Number.isNaN(asNum) && (transactionsStatusNumberToName as Record<number, string>)[asNum] !== undefined) {
+      return (transactionsStatusNumberToName as Record<number, string>)[asNum];
+    }
+    const upper = trimmed.toUpperCase();
+    if (upper in TransactionStatus) {
+      return upper;
+    }
+  }
+  return "UNKNOWN";
+}
+
+/**
+ * Normalizes execution result name from receipt using authoritative SDK mappings.
+ * SDK authoritative mapping:
+ * - 1 = FINISHED_WITH_RETURN
+ * - 2 = FINISHED_WITH_ERROR
+ * - 3 = TIMEOUT
+ * - 4 = NONDET_DISAGREE
+ */
+export function normalizeExecutionResult(rawResult: unknown): string {
+  if (rawResult === null || rawResult === undefined) {
+    return "UNKNOWN";
+  }
+  if (typeof rawResult === "number") {
+    const name = (executionResultNumberToName as Record<number, string>)[rawResult];
+    return name || "UNKNOWN";
+  }
+  if (typeof rawResult === "string") {
+    const trimmed = rawResult.trim();
+    if (trimmed === "") {
+      return "UNKNOWN";
+    }
+    const asNum = Number(trimmed);
+    if (!Number.isNaN(asNum) && (executionResultNumberToName as Record<number, string>)[asNum] !== undefined) {
+      return (executionResultNumberToName as Record<number, string>)[asNum];
+    }
+    const upper = trimmed.toUpperCase();
+    if (upper in ExecutionResult) {
+      return upper;
+    }
+  }
+  return "UNKNOWN";
+}
+
+// ============================================================================
+// 3. Structured Contract Execution Error & Receipt Extraction
 // ============================================================================
 
 /**
@@ -186,17 +424,17 @@ export function calculateRequiredIssuerBalance(req: IssuerBalanceRequirements): 
  * Retains complete receipt and execution metadata to prove the revert occurred on-chain.
  */
 export class ContractExecutionReceiptError extends Error {
-  public readonly transactionHash: string;
+  public readonly transactionHash: Hash | string;
   public readonly methodName: string;
-  public readonly receipt: any;
+  public readonly receipt: GenLayerReceiptLike | unknown;
   public readonly consensusStatus: string;
   public readonly executionResult: string;
   public readonly contractErrorPayload: string;
 
   constructor(params: {
-    transactionHash: string;
+    transactionHash: Hash | string;
     methodName: string;
-    receipt: any;
+    receipt: GenLayerReceiptLike | unknown;
     consensusStatus: string;
     executionResult: string;
     contractErrorPayload: string;
@@ -217,57 +455,65 @@ export class ContractExecutionReceiptError extends Error {
 
 /**
  * Safely extracts the normalized contract error payload string from a GenLayer transaction receipt.
- * Inspects documented receipt and consensus structure fields only.
+ * Inspects documented receipt and consensus structure fields only without 'any'.
  */
-export function extractContractErrorPayload(receipt: any, fallbackMessage?: string): string {
+export function extractContractErrorPayload(receipt: unknown, fallbackMessage?: string): string {
   if (!receipt || typeof receipt !== "object") {
     return fallbackMessage || "";
   }
 
-  // 1. Decoded receipt.result (e.g. from decodeLocalnetTransaction / resultToUserFriendlyJson)
-  if (typeof receipt.result === "string" && receipt.result.length > 0) {
-    return receipt.result;
+  const rec = receipt as Record<string, unknown>;
+
+  // 1. Decoded receipt.result
+  if (typeof rec.result === "string" && rec.result.length > 0) {
+    return rec.result;
   }
-  if (receipt.result && typeof receipt.result === "object") {
-    if (typeof receipt.result.payload === "string" && receipt.result.payload.length > 0) {
-      return receipt.result.payload;
+  if (rec.result && typeof rec.result === "object") {
+    const resObj = rec.result as Record<string, unknown>;
+    if (typeof resObj.payload === "string" && resObj.payload.length > 0) {
+      return resObj.payload;
     }
   }
 
   // 2. Consensus leader receipt data
-  const leaderReceipt = receipt.consensus_data?.leader_receipt;
-  if (leaderReceipt) {
-    const list = Array.isArray(leaderReceipt) ? leaderReceipt : [leaderReceipt];
-    for (const lr of list) {
-      if (typeof lr?.result === "string" && lr.result.length > 0) {
-        return lr.result;
-      }
-      if (lr?.result && typeof lr.result === "object" && typeof lr.result.payload === "string" && lr.result.payload.length > 0) {
-        return lr.result.payload;
-      }
-      if (typeof lr?.genvm_result === "string" && lr.genvm_result.length > 0) {
-        return lr.genvm_result;
+  if (rec.consensus_data && typeof rec.consensus_data === "object") {
+    const cd = rec.consensus_data as Record<string, unknown>;
+    const leaderReceipt = cd.leader_receipt;
+    if (leaderReceipt) {
+      const list = Array.isArray(leaderReceipt) ? leaderReceipt : [leaderReceipt];
+      for (const item of list) {
+        if (item && typeof item === "object") {
+          const lr = item as Record<string, unknown>;
+          if (typeof lr.result === "string" && lr.result.length > 0) {
+            return lr.result;
+          }
+          if (lr.result && typeof lr.result === "object") {
+            const lrRes = lr.result as Record<string, unknown>;
+            if (typeof lrRes.payload === "string" && lrRes.payload.length > 0) {
+              return lrRes.payload;
+            }
+          }
+          if (typeof lr.genvm_result === "string" && lr.genvm_result.length > 0) {
+            return lr.genvm_result;
+          }
+        }
       }
     }
   }
 
   // 3. Documented receipt error message fields
-  if (typeof receipt.errorMessage === "string" && receipt.errorMessage.length > 0) {
-    return receipt.errorMessage;
+  if (typeof rec.errorMessage === "string" && rec.errorMessage.length > 0) {
+    return rec.errorMessage;
   }
-  if (typeof receipt.error === "string" && receipt.error.length > 0) {
-    return receipt.error;
+  if (typeof rec.error === "string" && rec.error.length > 0) {
+    return rec.error;
   }
-  if (typeof receipt.contractErrorPayload === "string" && receipt.contractErrorPayload.length > 0) {
-    return receipt.contractErrorPayload;
+  if (typeof rec.contractErrorPayload === "string" && rec.contractErrorPayload.length > 0) {
+    return rec.contractErrorPayload;
   }
 
   return fallbackMessage || "";
 }
-
-// ============================================================================
-// 3. Receipt Execution & Consensus Verification (Phase 1 & Phase 8)
-// ============================================================================
 
 export interface ValidatedReceiptSummary {
   txHash: string;
@@ -277,38 +523,12 @@ export interface ValidatedReceiptSummary {
 }
 
 /**
- * Normalizes consensus status from receipt.
- */
-export function normalizeConsensusStatus(rawStatus: any): string {
-  if (rawStatus === "FINALIZED" || rawStatus === TransactionStatus.FINALIZED || rawStatus === 5 || rawStatus === "5") {
-    return "FINALIZED";
-  }
-  if (rawStatus === "ACCEPTED" || rawStatus === TransactionStatus.ACCEPTED || rawStatus === 7 || rawStatus === "7") {
-    return "ACCEPTED";
-  }
-  return String(rawStatus || "UNKNOWN");
-}
-
-/**
- * Normalizes execution result name from receipt.
- */
-export function normalizeExecutionResult(rawResult: any): string {
-  if (rawResult === "FINISHED_WITH_RETURN" || rawResult === ExecutionResult.FINISHED_WITH_RETURN || rawResult === 1 || rawResult === "1") {
-    return "FINISHED_WITH_RETURN";
-  }
-  if (rawResult === "FINISHED_WITH_ERROR" || rawResult === ExecutionResult.FINISHED_WITH_ERROR || rawResult === 2 || rawResult === "2") {
-    return "FINISHED_WITH_ERROR";
-  }
-  return String(rawResult || "UNKNOWN");
-}
-
-/**
  * Verifies that a transaction receipt finalized cleanly with execution result FINISHED_WITH_RETURN.
  * Rejects pending, unknown, canceled, or FINISHED_WITH_ERROR receipts.
  * When receipt contains FINISHED_WITH_ERROR, throws structured ContractExecutionReceiptError.
  */
 export function verifyReceiptExecution(
-  receipt: any,
+  receipt: unknown,
   context: string,
   methodName?: string
 ): ValidatedReceiptSummary {
@@ -316,13 +536,14 @@ export function verifyReceiptExecution(
     throw new Error(`Receipt verification failed for ${context}: receipt is missing or malformed`);
   }
 
-  const txHash = String(receipt.hash || receipt.transactionHash || "");
+  const rec = receipt as Record<string, unknown>;
+  const txHash = String(rec.hash || rec.transactionHash || "");
   if (!txHash || txHash.trim().length === 0) {
     throw new Error(`Receipt verification failed for ${context}: missing transaction hash`);
   }
 
   const statusName = normalizeConsensusStatus(
-    receipt.statusName !== undefined ? receipt.statusName : receipt.status
+    rec.statusName !== undefined ? rec.statusName : rec.status
   );
 
   const isAcceptedOrFinalized = statusName === "FINALIZED" || statusName === "ACCEPTED";
@@ -333,7 +554,7 @@ export function verifyReceiptExecution(
   }
 
   const executionResult = normalizeExecutionResult(
-    receipt.txExecutionResultName !== undefined ? receipt.txExecutionResultName : receipt.txExecutionResult
+    rec.txExecutionResultName !== undefined ? rec.txExecutionResultName : rec.txExecutionResult
   );
 
   if (executionResult === "FINISHED_WITH_ERROR") {
@@ -341,7 +562,7 @@ export function verifyReceiptExecution(
     throw new ContractExecutionReceiptError({
       transactionHash: txHash,
       methodName: methodName || context,
-      receipt,
+      receipt: receipt as GenLayerReceiptLike,
       consensusStatus: statusName,
       executionResult,
       contractErrorPayload: errorPayload,
@@ -354,13 +575,13 @@ export function verifyReceiptExecution(
     );
   }
 
-  if (!isSuccessful(receipt)) {
+  if (!isSuccessful(receipt as unknown as Parameters<typeof isSuccessful>[0])) {
     throw new Error(
       `Receipt verification failed for ${context} (tx ${txHash}): isSuccessful(receipt) returned false`
     );
   }
 
-  const contractAddress = receipt.contractAddress || receipt.recipient;
+  const contractAddress = (rec.contractAddress || rec.recipient) as string | undefined;
 
   return {
     txHash,
@@ -371,7 +592,7 @@ export function verifyReceiptExecution(
 }
 
 // ============================================================================
-// 4. Expected Contract Execution Error Classification (Phase 1 & Phase 2)
+// 4. Expected Contract Execution Error Classification
 // ============================================================================
 
 export interface ExpectedContractErrorOptions {
@@ -393,30 +614,27 @@ export interface ExpectedContractErrorOptions {
  * 5. Recorded method equals expectedMethod.
  * 6. Normalized contract error payload contains expectedErrorSubstring.
  * 7. State-unchanged verification callback passes.
- *
- * Rejects generic errors containing "revert", missing receipts, RPC timeouts,
- * FINISHED_WITH_RETURN, wrong methods, wrong error reasons, or state mutations.
  */
 export async function expectContractExecutionError(
-  action: () => Promise<any>,
+  action: () => Promise<unknown>,
   options: ExpectedContractErrorOptions
-): Promise<{ txHash: string; errorName: string; message: string; receipt: any }> {
+): Promise<{ txHash: string; errorName: string; message: string; receipt: unknown }> {
   if (!options.expectedErrorSubstring || options.expectedErrorSubstring.trim().length === 0) {
     throw new Error("expectedErrorSubstring is required for contract execution error validation");
   }
 
-  let actionResult: any = null;
+  let actionResult: unknown = null;
   let actionThrew = false;
-  let capturedError: any = null;
+  let capturedError: unknown = null;
 
   try {
     actionResult = await action();
-  } catch (err: any) {
+  } catch (err: unknown) {
     actionThrew = true;
     capturedError = err;
   }
 
-  let receipt: any = null;
+  let receipt: unknown = null;
   let txHash = "";
   let status = "";
   let execResult = "";
@@ -424,22 +642,21 @@ export async function expectContractExecutionError(
   let contractPayload = "";
 
   if (!actionThrew) {
-    // Action returned without throwing: must be a finalized receipt indicating FINISHED_WITH_ERROR
     if (!actionResult || typeof actionResult !== "object") {
       throw new Error(
         `Expected contract execution error on '${options.expectedMethod}', but call returned unexpected value without receipt`
       );
     }
+    const recObj = actionResult as Record<string, unknown>;
     receipt = actionResult;
-    txHash = String(receipt.hash || receipt.transactionHash || "");
-    status = normalizeConsensusStatus(receipt.statusName !== undefined ? receipt.statusName : receipt.status);
-    execResult = normalizeExecutionResult(receipt.txExecutionResultName !== undefined ? receipt.txExecutionResultName : receipt.txExecutionResult);
-    if (receipt.methodName && typeof receipt.methodName === "string") {
-      recordedMethod = receipt.methodName;
+    txHash = String(recObj.hash || recObj.transactionHash || "");
+    status = normalizeConsensusStatus(recObj.statusName !== undefined ? recObj.statusName : recObj.status);
+    execResult = normalizeExecutionResult(recObj.txExecutionResultName !== undefined ? recObj.txExecutionResultName : recObj.txExecutionResult);
+    if (typeof recObj.methodName === "string" && recObj.methodName.length > 0) {
+      recordedMethod = recObj.methodName;
     }
     contractPayload = extractContractErrorPayload(receipt);
   } else {
-    // Action threw: inspect if the error is backed by a structured on-chain receipt
     if (capturedError instanceof ContractExecutionReceiptError) {
       receipt = capturedError.receipt;
       txHash = capturedError.transactionHash;
@@ -447,19 +664,27 @@ export async function expectContractExecutionError(
       execResult = capturedError.executionResult;
       recordedMethod = capturedError.methodName;
       contractPayload = capturedError.contractErrorPayload;
-    } else if (capturedError?.receipt && typeof capturedError.receipt === "object") {
-      receipt = capturedError.receipt;
-      txHash = String(receipt.hash || receipt.transactionHash || capturedError.txHash || capturedError.transactionHash || "");
-      status = normalizeConsensusStatus(receipt.statusName !== undefined ? receipt.statusName : receipt.status);
-      execResult = normalizeExecutionResult(receipt.txExecutionResultName !== undefined ? receipt.txExecutionResultName : receipt.txExecutionResult);
-      if (capturedError.methodName && typeof capturedError.methodName === "string") {
-        recordedMethod = capturedError.methodName;
+    } else if (
+      capturedError &&
+      typeof capturedError === "object" &&
+      "receipt" in capturedError &&
+      typeof (capturedError as Record<string, unknown>).receipt === "object"
+    ) {
+      const errObj = capturedError as Record<string, unknown>;
+      const recObj = errObj.receipt as Record<string, unknown>;
+      receipt = recObj;
+      txHash = String(recObj.hash || recObj.transactionHash || errObj.txHash || errObj.transactionHash || "");
+      status = normalizeConsensusStatus(recObj.statusName !== undefined ? recObj.statusName : recObj.status);
+      execResult = normalizeExecutionResult(recObj.txExecutionResultName !== undefined ? recObj.txExecutionResultName : recObj.txExecutionResult);
+      if (typeof errObj.methodName === "string" && errObj.methodName.length > 0) {
+        recordedMethod = errObj.methodName;
       }
-      contractPayload = extractContractErrorPayload(receipt, capturedError.message);
+      const msg = capturedError instanceof Error ? capturedError.message : String(capturedError);
+      contractPayload = extractContractErrorPayload(receipt, msg);
     } else {
-      // Generic JavaScript error, locally manufactured error, or infrastructure failure without receipt -> strictly reject!
+      const msg = capturedError instanceof Error ? capturedError.message : String(capturedError);
       throw new Error(
-        `Rejected generic/unstructured error on '${options.expectedMethod}' without on-chain receipt: ${capturedError?.message || capturedError}`
+        `Rejected generic/unstructured error on '${options.expectedMethod}' without on-chain receipt: ${msg}`
       );
     }
   }
@@ -485,7 +710,7 @@ export async function expectContractExecutionError(
     );
   }
 
-  // 4. Execution result must be strictly FINISHED_WITH_ERROR (reject FINISHED_WITH_RETURN or pending)
+  // 4. Execution result must be strictly FINISHED_WITH_ERROR
   if (execResult === "FINISHED_WITH_RETURN") {
     throw new Error(
       `Expected contract execution error on '${options.expectedMethod}', but transaction succeeded unexpectedly (tx ${txHash})`
@@ -526,7 +751,7 @@ export async function expectContractExecutionError(
 }
 
 // ============================================================================
-// 5. Typed Challenger Funding Execution & Balance Verification (Phase 4 & Phase 5)
+// 5. Typed Challenger Funding Execution (Repair 7)
 // ============================================================================
 
 export interface ExecuteFundingOptions {
@@ -538,8 +763,7 @@ export interface ExecuteFundingOptions {
 }
 
 /**
- * Executes challenger funding using the typed GenLayer client interface.
- * Verifies transaction finality, receipt execution, and post-balance threshold.
+ * Executes challenger funding using the strictly typed GenLayer client interface.
  * Halts closed with BLOCKED_NO_SUPPORTED_CHALLENGER_FUNDING_API if sendTransaction is unavailable.
  */
 export async function executeAndVerifyChallengerFunding(
@@ -561,7 +785,7 @@ export async function executeAndVerifyChallengerFunding(
     chain: null,
   });
 
-  const receipt = await issuerClient.waitForTransactionReceipt({ hash: fundTxHash as any });
+  const receipt = await issuerClient.waitForTransactionReceipt({ hash: fundTxHash });
   verifyReceiptExecution(receipt, "challenger funding transaction", "sendTransaction");
 
   const postBalance = await issuerClient.getBalance({ address: challengerAddress });
@@ -576,5 +800,118 @@ export async function executeAndVerifyChallengerFunding(
   return {
     fundTxHash: String(fundTxHash),
     postBalance,
+  };
+}
+
+// ============================================================================
+// 6. Economic Cleanup & Readiness Evaluation (Repair 3, 4, 5)
+// ============================================================================
+
+export interface CleanupPartyResult {
+  contractAddress: Address;
+  party: "challenger" | "issuer";
+  observedCredit: bigint;
+  transactionHash: Hash;
+  receiptStatus: string;
+  executionResult: string;
+  postWithdrawalCredit: bigint;
+  accountingInvariantSatisfied: boolean;
+}
+
+export interface SweepResultRecord {
+  preSweepBalanceWei: bigint;
+  estimatedFeeWei: bigint;
+  attemptedSweepAmountWei: bigint;
+  sweepTransactionHash: Hash;
+  receiptStatus: string;
+  executionResult: string;
+  postSweepObservedResidualBalanceWei: bigint;
+}
+
+export interface EconomicCleanupReport {
+  status: "ECONOMIC_CLEANUP_PASS" | "ECONOMIC_CLEANUP_PARTIAL" | "ECONOMIC_CLEANUP_FAIL";
+  liveReadinessStatus: "LIVE_READINESS_PASS" | "LIVE_READINESS_BLOCKED";
+  records: CleanupPartyResult[];
+  totalChallengerCreditsWithdrawnWei: bigint;
+  totalIssuerCreditsWithdrawnWei: bigint;
+  totalContractCreditsWithdrawnWei: bigint;
+  expectedChallengerCreditsWei: bigint;
+  expectedIssuerCreditsWei: bigint;
+  expectedTotalContractCreditsWei: bigint;
+  sweepRecord?: SweepResultRecord;
+  unresolvedCreditsWei: bigint;
+  unresolvedContractAddresses: Address[];
+}
+
+export interface EvaluateCleanupOptions {
+  cleanupRecords: CleanupPartyResult[];
+  expectedPlan: ScenarioTransactionPlan;
+  sweepRecord?: SweepResultRecord;
+  sweepAttempted: boolean;
+}
+
+/**
+ * Pure evaluation function assessing economic cleanup completeness and readiness.
+ * Produces separate status indicators and requires exact credit resolution.
+ */
+export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): EconomicCleanupReport {
+  const { cleanupRecords, expectedPlan, sweepRecord, sweepAttempted } = options;
+
+  let challengerWithdrawn = 0n;
+  let issuerWithdrawn = 0n;
+  const unresolvedAddresses: Set<Address> = new Set();
+
+  for (const r of cleanupRecords) {
+    if (r.party === "challenger") {
+      challengerWithdrawn += r.observedCredit;
+    } else if (r.party === "issuer") {
+      issuerWithdrawn += r.observedCredit;
+    }
+    if (r.postWithdrawalCredit !== 0n || !r.accountingInvariantSatisfied) {
+      unresolvedAddresses.add(r.contractAddress);
+    }
+  }
+
+  const totalContractCreditsWithdrawn = challengerWithdrawn + issuerWithdrawn;
+  const expectedTotal = expectedPlan.expectedTotalContractCreditsWei;
+  const unresolvedCredits = expectedTotal > totalContractCreditsWithdrawn ? expectedTotal - totalContractCreditsWithdrawn : 0n;
+
+  const allExpectedChallengerRecovered = challengerWithdrawn === expectedPlan.expectedChallengerRecoverableCreditsWei;
+  const allExpectedIssuerRecovered = issuerWithdrawn === expectedPlan.expectedIssuerRecoverableCreditsWei;
+  const postWithdrawalsAllZero = cleanupRecords.every((r) => r.postWithdrawalCredit === 0n && r.accountingInvariantSatisfied);
+  const sweepOk = !sweepAttempted || (sweepRecord !== undefined && sweepRecord.receiptStatus === "FINALIZED" || sweepRecord?.receiptStatus === "ACCEPTED");
+
+  let status: "ECONOMIC_CLEANUP_PASS" | "ECONOMIC_CLEANUP_PARTIAL" | "ECONOMIC_CLEANUP_FAIL";
+
+  if (
+    allExpectedChallengerRecovered &&
+    allExpectedIssuerRecovered &&
+    postWithdrawalsAllZero &&
+    sweepOk &&
+    unresolvedAddresses.size === 0 &&
+    unresolvedCredits === 0n
+  ) {
+    status = "ECONOMIC_CLEANUP_PASS";
+  } else if (totalContractCreditsWithdrawn > 0n || cleanupRecords.length > 0) {
+    status = "ECONOMIC_CLEANUP_PARTIAL";
+  } else {
+    status = "ECONOMIC_CLEANUP_FAIL";
+  }
+
+  const liveReadinessStatus = status === "ECONOMIC_CLEANUP_PASS" ? "LIVE_READINESS_PASS" : "LIVE_READINESS_BLOCKED";
+
+  return {
+    status,
+    liveReadinessStatus,
+    records: cleanupRecords,
+    totalChallengerCreditsWithdrawnWei: challengerWithdrawn,
+    totalIssuerCreditsWithdrawnWei: issuerWithdrawn,
+    totalContractCreditsWithdrawnWei: totalContractCreditsWithdrawn,
+    expectedChallengerCreditsWei: expectedPlan.expectedChallengerRecoverableCreditsWei,
+    expectedIssuerCreditsWei: expectedPlan.expectedIssuerRecoverableCreditsWei,
+    expectedTotalContractCreditsWei: expectedTotal,
+    sweepRecord,
+    unresolvedCreditsWei: unresolvedCredits,
+    unresolvedContractAddresses: Array.from(unresolvedAddresses),
   };
 }

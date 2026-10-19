@@ -18,156 +18,111 @@
  * - Clears memory references upon completion.
  */
 
-import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createClient, createAccount, generatePrivateKey } from "genlayer-js";
-import { studioDevnet } from "genlayer-js/chains";
-import { resolveSigner } from "./signer.js";
 import { validateImmutableFixtureBaseUrl } from "./fixture_url_validator.js";
-import {
-  assertSignerSeparation,
-  getLiveScenariosSpec,
-  DEFAULT_CHALLENGER_BOND,
-  DEFAULT_ISSUER_BOND,
-  DEPLOY_FEE_HEURISTIC_MULTIPLIER,
-} from "./run_live_integration.js";
-import {
-  deriveChallengerTransactionCount,
-  deriveTotalChallengerTransactionCount,
-  calculateRequiredChallengerFunding,
-  calculateChallengerFundingShortfall,
-  calculateRequiredIssuerBalance,
-  executeAndVerifyChallengerFunding,
-} from "./harness_utils.js";
+
+export interface PythonLauncherDisposition {
+  status: "SKIPPED" | "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION" | "BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED";
+  exitCode: number;
+  reason: string;
+}
+
+/**
+ * Pure evaluation function for Python live launcher disposition.
+ * Enforces strict pre-network gates:
+ * 1. Default safe skip if RESERVECOVENANT_RUN_LIVE_TESTS != 1.
+ * 2. Immutable public fixture validation before any signer/keychain access.
+ * 3. Option B fail-closed halt: TypeScript harness is the sole authoritative live execution path
+ *    to prevent allocating and abandoning ephemeral challenger funds without receipt-verified cleanup.
+ */
+export function evaluatePythonLauncherDisposition(
+  env: Record<string, string | undefined> = process.env
+): PythonLauncherDisposition {
+  if (env.RESERVECOVENANT_RUN_LIVE_TESTS !== "1") {
+    return {
+      status: "SKIPPED",
+      exitCode: 0,
+      reason: "Live tests require explicit opt-in via RESERVECOVENANT_RUN_LIVE_TESTS=1.",
+    };
+  }
+
+  const fixtureBaseUrl = (env.RESERVECOVENANT_FIXTURE_BASE_URL || "").trim();
+  const fixtureValidation = validateImmutableFixtureBaseUrl(fixtureBaseUrl);
+  if (!fixtureValidation.valid) {
+    return {
+      status: "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION",
+      exitCode: 1,
+      reason: fixtureValidation.error || "Invalid or unconfigured fixture base URL.",
+    };
+  }
+
+  return {
+    status: "BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED",
+    exitCode: 1,
+    reason:
+      "Python live-write launcher is disabled fail-closed: post-execution dual-party economic cleanup " +
+      "and residual sweeping are only implemented in the authoritative TypeScript live harness " +
+      "(deploy/run_live_integration.ts). Ephemeral challenger funds will not be allocated or abandoned.",
+  };
+}
+
+/**
+ * Injects dynamic Studio Devnet fee estimate and scenario parameters into Python child process environment.
+ * Validates dynamic fee strictly before environment construction.
+ */
+export function buildPythonLiveEnvironment(
+  baseEnv: NodeJS.ProcessEnv,
+  issuerPrivateKey: string,
+  challengerPrivateKey: string,
+  fixtureBaseUrl: string,
+  estimatedFeeWei: bigint
+): Record<string, string> {
+  if (estimatedFeeWei <= 0n) {
+    throw new Error(`Invalid dynamic fee estimate: ${estimatedFeeWei.toString()} wei. Must be positive.`);
+  }
+  return {
+    ...baseEnv,
+    GENLAYER_PRIVATE_KEY: issuerPrivateKey,
+    RESERVECOVENANT_CHALLENGER_PRIVATE_KEY: challengerPrivateKey,
+    RESERVECOVENANT_RUN_LIVE_TESTS: "1",
+    RESERVECOVENANT_FIXTURE_BASE_URL: fixtureBaseUrl,
+    RESERVECOVENANT_ESTIMATED_FEE_WEI: estimatedFeeWei.toString(),
+    PYTHONUTF8: "1",
+  };
+}
 
 export async function runPythonLiveIntegration(): Promise<void> {
   console.log("=== ReserveCovenant Python Live Integration Launcher ===");
 
-  // 1. Safe default skip
-  if (process.env.RESERVECOVENANT_RUN_LIVE_TESTS !== "1") {
-    console.log("[SKIP] Live tests require explicit opt-in via RESERVECOVENANT_RUN_LIVE_TESTS=1.");
+  const disposition = evaluatePythonLauncherDisposition(process.env);
+  if (disposition.status === "SKIPPED") {
+    console.log(`[SKIP] ${disposition.reason}`);
     console.log("No transactions were submitted to the network.");
     return;
   }
 
-  // 2. Strict public fixture validation BEFORE signer resolution or any network write
-  const fixtureBaseUrl = (process.env.RESERVECOVENANT_FIXTURE_BASE_URL || "").trim();
-  const fixtureValidation = validateImmutableFixtureBaseUrl(fixtureBaseUrl);
-  if (!fixtureValidation.valid) {
-    console.error(`[BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION] ${fixtureValidation.error}`);
+  if (disposition.status === "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION") {
+    console.error(`[BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION] ${disposition.reason}`);
     console.error("GenLayer validators require immutable public commit-pinned HTTPS fixture URLs.");
     console.error("Zero deployments and zero transactions submitted.");
     process.exit(1);
   }
 
-  // 3. Resolve Issuer Signer from OS keychain
-  const issuerSigner = await resolveSigner({ checkBalance: true });
-  console.log(`[orchestration] Issuer public address:     ${issuerSigner.address}`);
-
-  // 4. Generate distinct in-memory Ephemeral Challenger Signer
-  let challengerPrivKey: string | null = generatePrivateKey();
-  const challengerAccount = createAccount(challengerPrivKey as `0x${string}`);
-  console.log(`[orchestration] Challenger public address: ${challengerAccount.address}`);
-
-  // 5. Assert signer separation
-  assertSignerSeparation(issuerSigner.address, challengerAccount.address);
-
-  // Initialize issuer client for Studio Devnet
-  const issuerClient = createClient({
-    endpoint: "https://studio-dev.genlayer.com/api",
-    chain: studioDevnet,
-    account: issuerSigner.account,
-  });
-
-  // 6. Calculate dynamic funding
-  const specs = getLiveScenariosSpec();
-  const challengerTxCount = BigInt(deriveTotalChallengerTransactionCount(specs, true)); // 14 transactions (7 challenge + 6 cleanup withdrawals + 1 sweep)
-  const feeEstimate = await issuerClient.estimateTransactionFees();
-  const feePerTx = BigInt(feeEstimate.feeValue);
-
-  const requiredFunding = calculateRequiredChallengerFunding({
-    challengerTxCount,
-    bondPerTx: DEFAULT_CHALLENGER_BOND,
-    estimatedFeePerTx: feePerTx,
-  });
-
-  const challengerCurrentBal = await issuerClient.getBalance({
-    address: challengerAccount.address as `0x${string}`,
-  });
-  const shortfall = calculateChallengerFundingShortfall(requiredFunding, challengerCurrentBal);
-
-  console.log(`[orchestration] Scenario count: ${specs.length}, Challenger transactions: ${challengerTxCount.toString()}`);
-  console.log(`[orchestration] Estimated fee per tx: ${feePerTx.toString()} wei`);
-  console.log(`[orchestration] Required challenger funding: ${requiredFunding.toString()} wei`);
-  console.log(`[orchestration] Challenger current balance:  ${challengerCurrentBal.toString()} wei`);
-  console.log(`[orchestration] Challenger funding shortfall: ${shortfall.toString()} wei`);
-
-  // Verify Issuer balance preflight with conservative deployment heuristic
-  const issuerBal = issuerSigner.balance ?? 0n;
-  const requiredIssuerBal = calculateRequiredIssuerBalance({
-    disposableDeployCount: 8n,
-    deployFeePerTx: feePerTx * DEPLOY_FEE_HEURISTIC_MULTIPLIER,
-    issuerBondsTotal: 8n * DEFAULT_ISSUER_BOND,
-    issuerTxCount: 20n,
-    txFeePerTx: feePerTx,
-    challengerShortfall: shortfall,
-  });
-
-  console.log(`[orchestration] Issuer current balance:   ${issuerBal.toString()} wei`);
-  console.log(`[orchestration] Required issuer balance:  ${requiredIssuerBal.toString()} wei`);
-
-  if (issuerBal < requiredIssuerBal) {
-    console.error(
-      `[BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE] Issuer balance (${issuerBal.toString()} wei) ` +
-      `is below required Studio Devnet preflight amount (${requiredIssuerBal.toString()} wei).`
-    );
+  if (disposition.status === "BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED") {
+    console.error(`[BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED] ${disposition.reason}`);
+    console.error("The TypeScript live harness (deploy/run_live_integration.ts) is the sole authoritative live execution path.");
+    console.error("Zero ephemeral challenger funds were allocated, funded, or abandoned.");
     process.exit(1);
   }
-
-  // 7. Fund challenger if shortfall > 0
-  if (shortfall > 0n) {
-    await executeAndVerifyChallengerFunding({
-      issuerClient,
-      issuerAccount: issuerSigner.account,
-      challengerAddress: challengerAccount.address,
-      fundingAmount: shortfall,
-      requiredPostBalance: requiredFunding,
-    });
-  }
-
-  // 8. Inject into Python child process environment ONLY
-  let childEnv: Record<string, string> | null = {
-    ...process.env,
-    GENLAYER_PRIVATE_KEY: issuerSigner.privateKey,
-    RESERVECOVENANT_CHALLENGER_PRIVATE_KEY: challengerPrivKey,
-    RESERVECOVENANT_RUN_LIVE_TESTS: "1",
-    RESERVECOVENANT_FIXTURE_BASE_URL: fixtureBaseUrl,
-    PYTHONUTF8: "1",
-  };
-
-  console.log("[orchestration] Launching Python live integration test suite...");
-  const pythonCmd = process.platform === "win32" ? "pytest" : "pytest";
-  const result = spawnSync(pythonCmd, ["tests/integration/test_reservecovenant_live.py", "-v"], {
-    stdio: "inherit",
-    shell: true,
-    env: childEnv,
-    cwd: process.cwd(),
-  });
-
-  // 9. Zero and clear references
-  challengerPrivKey = null;
-  childEnv = null;
-
-  const exitCode = result.status ?? (result.error ? 1 : 0);
-  console.log(`[orchestration] Python live integration suite completed with exit code: ${exitCode}`);
-  process.exit(exitCode);
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  runPythonLiveIntegration().catch((err) => {
-    console.error("Fatal launcher error:", err);
+  runPythonLiveIntegration().catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("Fatal launcher error:", msg);
     process.exit(1);
   });
 }
+

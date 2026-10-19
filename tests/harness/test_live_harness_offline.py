@@ -36,6 +36,8 @@ from tests.integration.test_reservecovenant_live import (
     verify_challenger_balance_preflight_initial,
     verify_challenger_next_tx_balance,
     reset_session_challenger_preflight_for_tests,
+    get_dynamic_fee_estimate_wei,
+    derive_dynamic_safety_margin_wei,
     REQUIRED_CHALLENGER_MIN_BALANCE,
 )
 
@@ -316,7 +318,7 @@ def test_offline_structured_failure_rejections():
     assert "missing transaction hash" in str(exc_nohash.value)
 
 
-def test_offline_challenger_balance_preflight_scope():
+def test_offline_challenger_balance_preflight_scope(monkeypatch):
     """
     Proves challenger balance preflight behavior:
     - Session-level full-suite preflight runs exactly once.
@@ -324,6 +326,7 @@ def test_offline_challenger_balance_preflight_scope():
     - Per-operation check fails before submission when upcoming balance is insufficient.
     - Per-operation check proceeds when upcoming balance is sufficient.
     """
+    monkeypatch.setenv("RESERVECOVENANT_ESTIMATED_FEE_WEI", "100000000000000")
     reset_session_challenger_preflight_for_tests()
     mock_challenger = MagicMock()
     mock_challenger.address = "0x" + "c" * 40
@@ -360,6 +363,59 @@ def test_offline_challenger_balance_preflight_scope():
     assert "BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE" in str(exc_low.value)
     assert "insufficient for upcoming operation" in str(exc_low.value)
     assert call_count == 3
+
+
+def test_offline_dynamic_fee_estimate_validation(monkeypatch):
+    """
+    Proves strict fail-closed validation of the dynamic fee estimate:
+    - Missing environment variable fails closed with BLOCKED_MISSING_FEE_ESTIMATE.
+    - Malformed string fails closed with BLOCKED_MALFORMED_FEE_ESTIMATE.
+    - Zero or negative values fail closed with BLOCKED_INVALID_FEE_ESTIMATE.
+    - Positive integers succeed and derive bounded safety margins.
+    """
+    # 1. Missing env var
+    monkeypatch.delenv("RESERVECOVENANT_ESTIMATED_FEE_WEI", raising=False)
+    with pytest.raises(pytest.fail.Exception) as exc_miss:
+        get_dynamic_fee_estimate_wei()
+    assert "BLOCKED_MISSING_FEE_ESTIMATE" in str(exc_miss.value)
+
+    # 2. Empty string
+    monkeypatch.setenv("RESERVECOVENANT_ESTIMATED_FEE_WEI", "   ")
+    with pytest.raises(pytest.fail.Exception) as exc_empty:
+        get_dynamic_fee_estimate_wei()
+    assert "BLOCKED_MISSING_FEE_ESTIMATE" in str(exc_empty.value)
+
+    # 3. Malformed string (alphanumeric, float, hex)
+    for bad_val in ["abc", "100.5", "0x123", "none", "null"]:
+        monkeypatch.setenv("RESERVECOVENANT_ESTIMATED_FEE_WEI", bad_val)
+        with pytest.raises(pytest.fail.Exception) as exc_mal:
+            get_dynamic_fee_estimate_wei()
+        assert "BLOCKED_MALFORMED_FEE_ESTIMATE" in str(exc_mal.value)
+
+    # 4. Zero value
+    monkeypatch.setenv("RESERVECOVENANT_ESTIMATED_FEE_WEI", "0")
+    with pytest.raises(pytest.fail.Exception) as exc_zero:
+        get_dynamic_fee_estimate_wei()
+    assert "BLOCKED_INVALID_FEE_ESTIMATE" in str(exc_zero.value)
+
+    # 5. Negative value
+    monkeypatch.setenv("RESERVECOVENANT_ESTIMATED_FEE_WEI", "-1000")
+    with pytest.raises(pytest.fail.Exception) as exc_neg:
+        get_dynamic_fee_estimate_wei()
+    assert "BLOCKED_INVALID_FEE_ESTIMATE" in str(exc_neg.value)
+
+    # 6. Valid positive value
+    monkeypatch.setenv("RESERVECOVENANT_ESTIMATED_FEE_WEI", "150000000000000")
+    fee = get_dynamic_fee_estimate_wei()
+    assert fee == 150_000_000_000_000
+
+    # 7. Safety margin derivation: 2x fee or minimum floor (5e13)
+    margin = derive_dynamic_safety_margin_wei(fee)
+    assert margin == 300_000_000_000_000  # 2 * 1.5e14 = 3e14
+
+    low_fee = 10_000_000_000_000  # 1e13 (2x is 2e13, floor is 5e13)
+    margin_floor = derive_dynamic_safety_margin_wei(low_fee)
+    assert margin_floor == 50_000_000_000_000
 
 
 def test_offline_accounting_invariant_logic():
@@ -472,3 +528,65 @@ def test_offline_scenario_specifications():
     assert scen4["fn"] == "open_challenge", "Scenario 4 must call open_challenge"
     assert scen4["type"] == "MATERIAL_DISCLAIMER", "Scenario 4 challenge type must be MATERIAL_DISCLAIMER"
     print("\n[OFFLINE_HARNESS_VALIDATION_PASS] Offline scenario specifications verified successfully.")
+
+
+def test_offline_python_launcher_disposition_gates():
+    """
+    Proves that the Python live launcher gates prevent running without opt-in or fixtures,
+    and under Option B halts fail-closed before any private key or ephemeral funding is performed.
+    """
+    import subprocess
+    import shutil
+
+    npx_bin = shutil.which("npx") or shutil.which("npx.cmd")
+    if not npx_bin:
+        pytest.skip("npx not available in environment for launcher disposition test")
+
+    launcher_path = str(project_root / "deploy" / "run_python_live_integration.ts")
+
+    # 1. Without opt-in -> skips cleanly (exit 0)
+    env_skip = os.environ.copy()
+    env_skip.pop("RESERVECOVENANT_RUN_LIVE_TESTS", None)
+    proc_skip = subprocess.run(
+        [npx_bin, "tsx", launcher_path],
+        capture_output=True,
+        text=True,
+        env=env_skip,
+        cwd=str(project_root),
+        shell=True if sys.platform == "win32" else False,
+    )
+    assert proc_skip.returncode == 0
+    assert "[SKIP]" in proc_skip.stdout
+
+    # 2. Opt-in without fixtures -> BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION (exit 1)
+    env_no_fix = os.environ.copy()
+    env_no_fix["RESERVECOVENANT_RUN_LIVE_TESTS"] = "1"
+    env_no_fix.pop("RESERVECOVENANT_FIXTURE_BASE_URL", None)
+    proc_no_fix = subprocess.run(
+        [npx_bin, "tsx", launcher_path],
+        capture_output=True,
+        text=True,
+        env=env_no_fix,
+        cwd=str(project_root),
+        shell=True if sys.platform == "win32" else False,
+    )
+    assert proc_no_fix.returncode == 1
+    assert "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION" in (proc_no_fix.stdout + proc_no_fix.stderr)
+
+    # 3. Opt-in with valid fixtures -> BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED (exit 1)
+    env_valid_fix = os.environ.copy()
+    env_valid_fix["RESERVECOVENANT_RUN_LIVE_TESTS"] = "1"
+    env_valid_fix["RESERVECOVENANT_FIXTURE_BASE_URL"] = "https://raw.githubusercontent.com/owner/repo/0123456789abcdef0123456789abcdef01234567/fixtures"
+    proc_valid_fix = subprocess.run(
+        [npx_bin, "tsx", launcher_path],
+        capture_output=True,
+        text=True,
+        env=env_valid_fix,
+        cwd=str(project_root),
+        shell=True if sys.platform == "win32" else False,
+    )
+    assert proc_valid_fix.returncode == 1
+    output = proc_valid_fix.stdout + proc_valid_fix.stderr
+    assert "BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED" in output
+    assert "Zero ephemeral challenger funds were allocated, funded, or abandoned" in output
+
