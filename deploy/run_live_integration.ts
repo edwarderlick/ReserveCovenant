@@ -321,7 +321,7 @@ async function runLiveIntegration(): Promise<void> {
     let shortfall: bigint;
 
     const plan = isResumeMode
-      ? deriveContinuationTransactionPlan()
+      ? deriveContinuationTransactionPlan(undefined, true)
       : deriveScenarioTransactionPlan(specs, true);
 
     if (isResumeMode) {
@@ -339,7 +339,7 @@ async function runLiveIntegration(): Promise<void> {
       shortfall = calculateChallengerFundingShortfall(requiredFunding, challengerCurrentBal);
 
       console.log(`[continuation-plan] Challenge bond transactions:  ${contPlan.challengeBondTransactionCount.toString()}`);
-      console.log(`[continuation-plan] Challenger signed tx count:   ${contPlan.challengerSignedTransactionCount.toString()} (3 challenges + 2 cleanup + sweep)`);
+      console.log(`[continuation-plan] Challenger signed tx count:   ${contPlan.challengerSignedTransactionCount.toString()} (2 challenges + 2 cleanup + sweep)`);
       console.log(`[continuation-plan] Estimated fee per tx:         ${feePerTx.toString()} wei`);
       console.log(`[continuation-plan] Required challenger funding:   ${requiredFunding.toString()} wei`);
       console.log(`[continuation-plan] Challenger current balance:    ${challengerCurrentBal.toString()} wei`);
@@ -667,10 +667,19 @@ async function runLiveIntegration(): Promise<void> {
 
         const spec5 = specs[4];
         let chalRes5Hash: string;
+        let resRes5Hash: string;
 
-        if (s5State.status === "CHALLENGED") {
+        if (s5State.status === "UPHELD") {
+          chalRes5Hash = process.env.RESERVECOVENANT_SCENARIO5_CHALLENGE_TX || "0x5f81e8e54bb14ad0134e40946a90ca15a2030e550e40a315ad0eb51be94ae41c";
+          resRes5Hash = process.env.RESERVECOVENANT_SCENARIO5_RESOLVE_TX || "0x63d87f4c12e22a35f85d9f6ef13ecc348ab4b84a605b3c724378c97f725941ed";
+          console.log(`[continuation] Scenario 5 challenge is already resolved on-chain (challenge tx ${chalRes5Hash}, resolve tx ${resRes5Hash}). Continuing to Scenario 6.`);
+        } else if (s5State.status === "CHALLENGED") {
           chalRes5Hash = process.env.RESERVECOVENANT_SCENARIO5_CHALLENGE_TX || "0x5f81e8e54bb14ad0134e40946a90ca15a2030e550e40a315ad0eb51be94ae41c";
           console.log(`[continuation] Scenario 5 challenge is already active on-chain (tx ${chalRes5Hash}). Continuing to resolve_challenge.`);
+          // Issuer signs resolve_challenge
+          const resRes5 = await execWrite(issuerClient, s5Addr, "resolve_challenge", [1]);
+          resRes5Hash = resRes5.transactionHash;
+          console.log(`[PASS] Scenario 5 resolve_challenge submitted and verified (tx ${resRes5Hash})`);
         } else {
           let evUrl5: string = `${fixtureBaseUrl}/${spec5.evidenceFile}`;
           let evSha5: string = getFixtureSha(spec5.evidenceFile!);
@@ -685,11 +694,12 @@ async function runLiveIntegration(): Promise<void> {
           );
           chalRes5Hash = chalRes5.transactionHash;
           console.log(`[PASS] Scenario 5 open_challenge submitted and verified (tx ${chalRes5Hash})`);
-        }
 
-        // Issuer signs resolve_challenge
-        const resRes5 = await execWrite(issuerClient, s5Addr, "resolve_challenge", [1]);
-        console.log(`[PASS] Scenario 5 resolve_challenge submitted and verified (tx ${resRes5.transactionHash})`);
+          // Issuer signs resolve_challenge
+          const resRes5 = await execWrite(issuerClient, s5Addr, "resolve_challenge", [1]);
+          resRes5Hash = resRes5.transactionHash;
+          console.log(`[PASS] Scenario 5 resolve_challenge submitted and verified (tx ${resRes5Hash})`);
+        }
 
         const status5 = await issuerClient.readContract({
           address: s5Addr,
@@ -718,7 +728,7 @@ async function runLiveIntegration(): Promise<void> {
           contractAddress: s5Addr,
           publishTxHash: s5PublishTx,
           challengeTxHash: chalRes5Hash,
-          resolveTxHash: resRes5.transactionHash,
+          resolveTxHash: resRes5Hash,
           finalStatus: status5 as string,
           accountingInvariant: acct5.invariant_satisfied,
         });

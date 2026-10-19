@@ -1784,7 +1784,10 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(isTerminalReceipt({ statusName: "ACCEPTED", txExecutionResultName: "FINISHED_WITH_ERROR" }), "24c. ACCEPTED + FINISHED_WITH_ERROR must be terminal");
   assert(isTerminalReceipt({ status: 0 }), "24d. EVM failure (status 0) must be terminal");
   assert(!isTerminalReceipt({ status: 1 }), "24e. Status 1 (PENDING) must not be terminal");
-  assert(!isTerminalReceipt(null), "24f. Null receipt must not be terminal");
+  assert(!isTerminalReceipt({ statusName: "COMMITTING", txExecutionResultName: "FINISHED_WITH_RETURN" }), "24f. COMMITTING must not be terminal even if txExecutionResult is set");
+  assert(!isTerminalReceipt({ statusName: "PROPOSING", txExecutionResultName: "FINISHED_WITH_RETURN" }), "24g. PROPOSING must not be terminal");
+  assert(!isTerminalReceipt({ statusName: "REVEALING", txExecutionResultName: "FINISHED_WITH_RETURN" }), "24h. REVEALING must not be terminal");
+  assert(!isTerminalReceipt(null), "24i. Null receipt must not be terminal");
 
   // Test fallback polling recovery on transient transport error
   let primaryFetchCalls = 0;
@@ -1986,6 +1989,40 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(s5StateChallenged.contractBalanceWei === 15000000000000000n, "25j. Challenged balance must be 0.015 GEN");
   assert(s5StateChallenged.lockedChallengerBondsWei === 5000000000000000n, "25k. Locked challenger bond must be 0.005 GEN");
 
+  const mockS5UpheldValid = {
+    getContractCode: async () => validContractCode,
+    readContract: async ({ functionName }: { functionName: string }) => {
+      if (functionName === "get_current_status") return "UPHELD";
+      if (functionName === "get_accounting") {
+        return {
+          contract_balance: 15000000000000000n,
+          locked_issuer_bonds: 0n,
+          locked_challenger_bonds: 0n,
+          total_credits: 15000000000000000n,
+          invariant_satisfied: true,
+        };
+      }
+      if (functionName === "get_epoch") {
+        return {
+          epoch_id: 1,
+          terminal_status: "UPHELD",
+          challenger: "0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9",
+          snapshot_sha256: "07294204790ff0921a9c7cb2d4f6fc9344e31238be20a4f3b042dfbd3420986f",
+        };
+      }
+      return null;
+    },
+  };
+  const s5StateUpheld = await verifyScenario5ResumeState(
+    mockS5UpheldValid,
+    "0xbd80518107647cD17c1Af617c5a50fc5b9B037ee" as Address,
+    validCodeSha
+  );
+  assert(s5StateUpheld.status === "UPHELD", "25l. Status must be UPHELD");
+  assert(s5StateUpheld.contractBalanceWei === 15000000000000000n, "25m. Upheld balance must be 0.015 GEN");
+  assert(s5StateUpheld.lockedIssuerBondsWei === 0n, "25n. Locked issuer bond must be 0");
+  assert(s5StateUpheld.lockedChallengerBondsWei === 0n, "25o. Locked challenger bond must be 0");
+
   // --------------------------------------------------------------------------
   // [26] Subset Continuation Transaction Planning
   // --------------------------------------------------------------------------
@@ -2006,6 +2043,10 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(contPlan.aggregateIssuerRecoverableCreditsWei === 39000000000000000n, "26m. Aggregate issuer credits = 0.039 GEN");
   assert(contPlan.aggregateTotalContractCreditsWei === 105000000000000000n, "26n. Aggregate total credits = 0.105 GEN");
   assert(contPlan.aggregateCleanupTargetsCount === 13n, "26o. Aggregate cleanup targets count = 13");
+
+  const contPlanChallenged = deriveContinuationTransactionPlan(undefined, true);
+  assert(contPlanChallenged.challengeBondTransactionCount === 2n, "26p. Challenged plan requires 2 challenge bonds (S6, S7)");
+  assert(contPlanChallenged.challengerSignedTransactionCount === 5n, "26q. Challenged plan requires 5 challenger txs (2 bonds + 2 withdrawals + 1 sweep)");
 
   // --------------------------------------------------------------------------
   // [27] Subset Continuation Cleanup Manifest

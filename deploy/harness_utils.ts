@@ -599,20 +599,12 @@ export function isTerminalReceipt(receipt: unknown): boolean {
   if (!receipt || typeof receipt !== "object") return false;
   const rec = receipt as Record<string, unknown>;
 
-  // 1. txExecutionResult
-  const rawExec = rec.txExecutionResultName !== undefined ? rec.txExecutionResultName : rec.txExecutionResult;
-  if (rawExec !== undefined && rawExec !== null) {
-    try {
-      const normalizedExec = normalizeExecutionResult(rawExec);
-      if (normalizedExec === "FINISHED_WITH_RETURN" || normalizedExec === "FINISHED_WITH_ERROR") {
-        return true;
-      }
-    } catch {
-      // not recognized yet
-    }
+  // 1. EVM status check (status 0 / "0x0" is EVM failure)
+  if (rec.status === 0 || rec.status === "0x0") {
+    return true;
   }
 
-  // 2. consensus status
+  // 2. Consensus status check: must reach terminal consensus status
   const rawStatus = rec.statusName !== undefined
     ? rec.statusName
     : rec.status_name !== undefined
@@ -621,17 +613,31 @@ export function isTerminalReceipt(receipt: unknown): boolean {
   if (rawStatus !== undefined && rawStatus !== null) {
     try {
       const normalizedStatus = normalizeConsensusStatus(rawStatus);
-      if (normalizedStatus === "FINALIZED" || normalizedStatus === "ACCEPTED") {
+      if (
+        normalizedStatus === "FINALIZED" ||
+        normalizedStatus === "ACCEPTED" ||
+        normalizedStatus === "CANCELED" ||
+        normalizedStatus === "VALIDATORS_TIMEOUT" ||
+        normalizedStatus === "LEADER_TIMEOUT" ||
+        normalizedStatus === "UNDETERMINED"
+      ) {
         return true;
+      }
+      // If it is in an in-progress status, it is NEVER terminal even if txExecutionResult is set
+      if (
+        normalizedStatus === "COMMITTING" ||
+        normalizedStatus === "PROPOSING" ||
+        normalizedStatus === "REVEALING" ||
+        normalizedStatus === "PENDING" ||
+        normalizedStatus === "UNINITIALIZED" ||
+        normalizedStatus === "APPEAL_COMMITTING" ||
+        normalizedStatus === "APPEAL_REVEALING"
+      ) {
+        return false;
       }
     } catch {
       // not recognized yet
     }
-  }
-
-  // 3. EVM status check (status 0 / "0x0" is EVM failure)
-  if (rec.status === 0 || rec.status === "0x0") {
-    return true;
   }
 
   return false;
@@ -1885,9 +1891,9 @@ export async function verifyScenario5ResumeState(
     functionName: "get_current_status",
     args: [],
   });
-  if (status !== "OPEN" && status !== "CHALLENGED") {
+  if (status !== "OPEN" && status !== "CHALLENGED" && status !== "UPHELD") {
     throw new Error(
-      `Scenario 5 resume state validation failed: expected status 'OPEN' or 'CHALLENGED', got '${status}'`
+      `Scenario 5 resume state validation failed: expected status 'OPEN', 'CHALLENGED', or 'UPHELD', got '${status}'`
     );
   }
 
@@ -1900,13 +1906,13 @@ export async function verifyScenario5ResumeState(
   if (!acct.invariant_satisfied) {
     throw new Error("Scenario 5 resume state validation failed: accounting invariant broken");
   }
-  if (acct.locked_issuer_bonds !== expectedIssuerBond) {
-    throw new Error(
-      `Scenario 5 resume state validation failed: locked issuer bonds (${acct.locked_issuer_bonds.toString()} wei) does not match expected (${expectedIssuerBond.toString()} wei)`
-    );
-  }
 
   if (status === "OPEN") {
+    if (acct.locked_issuer_bonds !== expectedIssuerBond) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: locked issuer bonds (${acct.locked_issuer_bonds.toString()} wei) does not match expected (${expectedIssuerBond.toString()} wei)`
+      );
+    }
     if (acct.contract_balance !== expectedIssuerBond) {
       throw new Error(
         `Scenario 5 resume state validation failed: contract balance (${acct.contract_balance.toString()} wei) does not match expected issuer bond (${expectedIssuerBond.toString()} wei)`
@@ -1917,8 +1923,17 @@ export async function verifyScenario5ResumeState(
         `Scenario 5 resume state validation failed: locked challenger bonds is non-zero (${acct.locked_challenger_bonds.toString()} wei)`
       );
     }
-  } else {
-    // status === "CHALLENGED"
+    if (acct.total_credits !== 0n) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: total credits is non-zero (${acct.total_credits.toString()} wei)`
+      );
+    }
+  } else if (status === "CHALLENGED") {
+    if (acct.locked_issuer_bonds !== expectedIssuerBond) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: locked issuer bonds (${acct.locked_issuer_bonds.toString()} wei) does not match expected (${expectedIssuerBond.toString()} wei)`
+      );
+    }
     const expectedTotalBond = expectedIssuerBond + 5000000000000000n; // 0.015 GEN
     if (acct.contract_balance !== expectedTotalBond) {
       throw new Error(
@@ -1930,12 +1945,60 @@ export async function verifyScenario5ResumeState(
         `Scenario 5 resume state validation failed: locked challenger bonds (${acct.locked_challenger_bonds.toString()} wei) does not match expected (5000000000000000 wei)`
       );
     }
+    if (acct.total_credits !== 0n) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: total credits is non-zero (${acct.total_credits.toString()} wei)`
+      );
+    }
+  } else {
+    // status === "UPHELD"
+    if (acct.locked_issuer_bonds !== 0n) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: locked issuer bonds is non-zero (${acct.locked_issuer_bonds.toString()} wei)`
+      );
+    }
+    if (acct.locked_challenger_bonds !== 0n) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: locked challenger bonds is non-zero (${acct.locked_challenger_bonds.toString()} wei)`
+      );
+    }
+    const expectedUpheldCredits = expectedIssuerBond + 5000000000000000n; // 0.015 GEN
+    if (acct.total_credits !== expectedUpheldCredits) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: total credits (${acct.total_credits.toString()} wei) does not match expected (${expectedUpheldCredits.toString()} wei)`
+      );
+    }
+    if (acct.contract_balance !== expectedUpheldCredits) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: contract balance (${acct.contract_balance.toString()} wei) does not match expected (${expectedUpheldCredits.toString()} wei)`
+      );
+    }
   }
 
-  if (acct.total_credits !== 0n) {
-    throw new Error(
-      `Scenario 5 resume state validation failed: total credits is non-zero (${acct.total_credits.toString()} wei)`
-    );
+  if (status === "UPHELD") {
+    const ep1 = await client.readContract({
+      address: scenario5Address,
+      functionName: "get_epoch",
+      args: [1],
+    });
+    if (!ep1 || ep1.terminal_status !== "UPHELD") {
+      throw new Error("Scenario 5 resume state validation failed: epoch 1 terminal status is not UPHELD");
+    }
+    return {
+      address: scenario5Address,
+      codeSha256: codeSha,
+      status: status as string,
+      contractBalanceWei: acct.contract_balance,
+      lockedIssuerBondsWei: acct.locked_issuer_bonds,
+      lockedChallengerBondsWei: acct.locked_challenger_bonds,
+      invariantSatisfied: acct.invariant_satisfied,
+      activeEpochId: 1,
+      activeEpochStatus: "UPHELD",
+      activeEpochChallenger: String(ep1.challenger),
+      snapshotSha256: String(ep1.snapshot_sha256),
+      snapshotUrl: "",
+      challengeDeadline: 0,
+    };
   }
 
   const ep = await client.readContract({
@@ -2020,7 +2083,8 @@ export function deriveContinuationTransactionPlan(
     issuerBond: 10000000000000000n, // 0.01 GEN
     challengerBond: 5000000000000000n, // 0.005 GEN
     treasuryBps: 1000n, // 10.00%
-  }
+  },
+  scenario5ChallengedOnChain: boolean = false
 ): ContinuationTransactionPlan {
   const challengerRemainingCredits = bonds.challengerBond + bonds.challengerBond; // 0.010 GEN (S6 + S7)
   const issuerRemainingCredits =
@@ -2036,11 +2100,14 @@ export function deriveContinuationTransactionPlan(
   const s1to4IssuerCredits = 4n * treasuryShare; // 0.004 GEN
   const s1to4TotalCredits = s1to4ChallengerCredits + s1to4IssuerCredits; // 0.060 GEN
 
+  const challengeBondCount = scenario5ChallengedOnChain ? 2n : 3n;
+  const challengerSignedCount = challengeBondCount + 2n + 1n; // challenges + 2 cleanup withdrawals + 1 sweep
+
   return {
-    challengeBondTransactionCount: 3n,
+    challengeBondTransactionCount: challengeBondCount,
     challengerCleanupWithdrawalCount: 2n,
     challengerSweepTransactionCount: 1n,
-    challengerSignedTransactionCount: 6n,
+    challengerSignedTransactionCount: challengerSignedCount,
     disposableDeployCount: 3n,
     issuerBondTransactionCount: 3n,
     primaryIssuerSignedTransactionCount: 10n,
