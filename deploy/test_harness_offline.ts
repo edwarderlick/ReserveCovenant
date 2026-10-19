@@ -1282,9 +1282,12 @@ async function runOfflineHarnessTests(): Promise<void> {
   // Fixture evaluation
   const evalResult = evaluateFixturesStatus();
   assert(evalResult.checkRes.evidenceValid === true, "Local evidence files match computed hashes");
-  assert(evalResult.strictPass === false, "Strict check must fail prior to public repository publication");
-  assert(evalResult.status === "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION", "Status must be blocked pending publication");
-  assert(evalResult.prepublishPass === true, "Prepublication inspection must pass on consistent placeholder state");
+  if (evalResult.strictPass) {
+    assert(evalResult.status === "PUBLICATION_READY", "Status must be publication ready when strict check passes");
+  } else {
+    assert(evalResult.status === "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION", "Status must be blocked pending publication");
+    assert(evalResult.prepublishPass === true, "Prepublication inspection must pass on consistent placeholder state");
+  }
 
   // Immutable URL validator
   const validCommit = "a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e";

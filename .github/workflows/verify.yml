@@ -150,24 +150,8 @@ jobs:
       - name: Verify fixture prepublish inspection mode
         run: npm run fixtures:prepublish
 
-      - name: Verify expected strict fixture-check blocked failure while unpublished
-        run: |
-          set +e
-          check_output=$(npm run fixtures:check 2>&1)
-          check_status=$?
-          set -e
-
-          if [ "$check_status" -eq 0 ]; then
-            echo "::error::fixtures:check unexpectedly succeeded while fixtures are unpublished"
-            exit 1
-          fi
-
-          if ! echo "$check_output" | grep -Fq "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION"; then
-            echo "::error::fixtures:check failed without expected BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION status"
-            exit 1
-          fi
-
-          echo "Strict fixtures:check correctly failed closed with BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION (exit code: $check_status)"
+      - name: Verify strict fixture publication check
+        run: npm run fixtures:check
 
       - name: Verify fail-closed command runner on missing executable
         run: node scripts/run_fail_closed.cjs test:missing-executable

@@ -93,10 +93,10 @@ function handleSchemaCheck() {
       process.exit(status);
     }
 
-    const trackedContent = fs.readFileSync(trackedSchemaPath);
-    const generatedContent = fs.readFileSync(tmpSchemaPath);
+    const trackedContent = fs.readFileSync(trackedSchemaPath, "utf-8").replace(/\r\n/g, "\n");
+    const generatedContent = fs.readFileSync(tmpSchemaPath, "utf-8").replace(/\r\n/g, "\n");
 
-    if (!trackedContent.equals(generatedContent)) {
+    if (trackedContent !== generatedContent) {
       console.error("[FAIL-CLOSED ERROR] Schema parity check FAILED: generated schema differs from tracked deploy/schema.json");
       process.exit(1);
     }
