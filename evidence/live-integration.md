@@ -12,6 +12,10 @@
   - Code-Bearing Continuation Green CI Run: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987)
 - **Prior Evidence-Documentation Commit**: [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b)
   - Prior Final Documentation Green CI Run: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830)
+- **Evidence-Integrity Commit**: [`ea48c912c221c01a4a03f8d173d5e73ecdea5e41`](https://github.com/edwarderlick/ReserveCovenant/commit/ea48c912c221c01a4a03f8d173d5e73ecdea5e41)
+  - Evidence-Integrity Green CI Run: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39237397792`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39237397792)
+- **Canonical Deployment Commit**: [`efd195f2d7061267d4698959b200077be04c0acc`](https://github.com/edwarderlick/ReserveCovenant/commit/efd195f2d7061267d4698959b200077be04c0acc)
+  - Canonical Deployment Green CI Run: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39239662112`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39239662112)
 - **Stage-A Evidence Commit (`COMMIT_A`)**: `7060b5e631fb5e2581fc51f7d23bf331ee79184c`
 - **Stage-B Snapshot Commit (`COMMIT_B`)**: `698b675e5b637f263f841ac148e1718f3c566024`
 - **Authoritative Fixture Base**: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures`

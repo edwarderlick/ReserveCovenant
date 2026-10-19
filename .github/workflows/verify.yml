@@ -1,7 +1,7 @@
 # ==============================================================================
 # ReserveCovenant CI Workflow
-# STATUS: PREPARED — NOT PUBLICLY EXECUTED
-# (No GitHub remote or repository configured per local security boundary)
+# STATUS: PUBLICLY ACTIVE & VERIFIED
+# (GitHub Actions CI for https://github.com/edwarderlick/ReserveCovenant)
 # ==============================================================================
 
 name: Verify

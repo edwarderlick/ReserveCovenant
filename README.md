@@ -227,6 +227,9 @@ Semantic evaluation prompts are strictly delimited and hardened against adversar
    ```
 4. Output keys and reason codes are validated against a fixed enum allowlist. Any deviation, extra key, missing key, or unevidenced breach falls closed to `INCONCLUSIVE`.
 
+> [!NOTE]
+> **Hardening Consideration**: Untrusted semantic fields are length-bounded and treated as data by the evaluation instructions, but are not separately escaped against triple-quote delimiter collisions. This is recorded as a future hardening consideration and is not changed in the deployed canonical source.
+
 ---
 
 ## Bounded Storage Design
@@ -305,17 +308,29 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 - **ABI Schema**: `deploy/schema.json`
 - **Schema SHA-256**: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1`
 
-### Canonical Deployment Gate
+### Historical Pre-Live Checkpoint — Superseded
 
-- **Status**: **PUBLICATION_READY — CANONICAL DEPLOYMENT GATED**
-- **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0). All Stage-A evidence documents and Stage-B snapshots are published and commit-pinned.
-- **Live Integration & Funding Gate**:
+> [!NOTE]
+> **Historical Record — Superseded**:
+> This checkpoint previously gated canonical deployment prior to live validation. It was **superseded** by:
+> - Eight completed disposable live-validation scenarios on Studio Devnet;
+> - Complete disposable-contract economic cleanup (13/13 targets withdrawn, 0 wei persistent challenger residual);
+> - Canonical deployment ([`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153));
+> - Byte-for-byte canonical deployed-source verification (`npm run verify:onchain`).
+>
+> **Authoritative Current Status**:
+> - **Live validation**: COMPLETE
+> - **Disposable cleanup**: COMPLETE
+> - **Canonical deployment**: COMPLETE
+> - **Canonical deployed-source parity**: PROVEN
+> - **Portal submission**: NOT PERFORMED
+
+- **Historical Gate Status (Superseded)**: `PUBLICATION_READY — CANONICAL DEPLOYMENT GATED` (Historical record prior to live execution)
+- **Public Fixtures Status**: `PUBLICATION_READY` (`npm run fixtures:check` exits 0). All Stage-A evidence documents and Stage-B snapshots are published and commit-pinned.
+- **Historical Funding Record**:
   - Official faucet funding succeeded: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d)
   - Ephemeral challenger funding succeeded: [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21)
-  - Live harness halted during funding receipt verification (`NOT_VOTED` on native transfer between EOAs; see [evidence/live-integration.md](evidence/live-integration.md)).
-  - Zero disposable scenario contracts were deployed.
-  - Zero contract credits allocated.
-- **Action**: In accordance with the deployment gate rules, execution stopped prior to live disposable scenario execution and canonical redeployment. No canonical contract has been deployed.
+  - Historical note: During initial harness execution, native transfers between EOAs returned `NOT_VOTED` before custom receipt handling was added. Execution halted safely at that checkpoint before disposable scenario deployment. Once native transfer receipt resolution was integrated, all eight disposable scenarios and canonical deployment executed to completion.
 
 ---
 
@@ -329,12 +344,12 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 | Offline Harness (Python) | `tests/harness/test_live_harness_offline.py` | 15 | **PASSED** | Signer separation logic, distinct ephemeral challenger resolution, fail-closed guards, receipt-backed error classification, session-scoped balance preflight, dynamic fee validation (`OFFLINE_HARNESS_VALIDATION_PASS`) |
 | Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 41 checks | **PASSED** | Pure offline harness validation: authoritative SDK status mappings, actual receipt evidence, exact 13-target manifest matching, discriminated failure tracking, explicit sweep dispositions, combined readiness semantics, and dedicated native transfer verification (`OFFLINE_HARNESS_VALIDATION_PASS`) |
 | Live Integration Launcher (Python) | `deploy/run_python_live_integration.ts` | Orchestration | **DISABLED (Option B)** | Fail-closed guard (`BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED`); TypeScript harness is authoritative to protect ephemeral funds |
-| Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (gated by fixture publication) |
-| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **HALTED AT FUNDING** | Preflight passed, challenger funded via on-chain transfer; halted on receipt assertion before scenario deployment |
+| Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (TypeScript harness is the authoritative completed live path) |
+| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **COMPLETED (8/8)** | Authoritative TypeScript harness completed all eight disposable scenarios on Studio Devnet; final contract states, consensus outcomes, and accounting invariants recorded in [evidence/live-integration.md](evidence/live-integration.md) |
 
 ---
 
-## Deployment & Verification Status
+## Canonical Deployment & Verification Evidence
 
 ### Canonical Deployment — Authoritative Production Instance
 
@@ -431,6 +446,7 @@ Confirmed on-chain via read-only inspection (`npm run smoke:read`):
   - Code-Bearing Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (Commit [`7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`](https://github.com/edwarderlick/ReserveCovenant/commit/7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901))
   - Prior Evidence-Documentation Green CI: [Run 39233275830](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830) (Commit [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b))
   - Evidence-Integrity Green CI: [Run 39237397792](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39237397792) (Commit [`ea48c912c221c01a4a03f8d173d5e73ecdea5e41`](https://github.com/edwarderlick/ReserveCovenant/commit/ea48c912c221c01a4a03f8d173d5e73ecdea5e41))
+  - Canonical Deployment Green CI: [Run 39239662112](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39239662112) (Commit [`efd195f2d7061267d4698959b200077be04c0acc`](https://github.com/edwarderlick/ReserveCovenant/commit/efd195f2d7061267d4698959b200077be04c0acc))
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
 - **Authoritative Lifecycle Boundary**:
   - Live validation: COMPLETE
@@ -460,10 +476,10 @@ npm run test:direct
 # 5. Run offline harness & signer separation validation (33 tests, zero network writes)
 npm run test:harness
 
-# 6. Verify fixture prepublish inspection (passes on internally consistent blocked state)
+# 6. Verify fixture prepublish inspection (inspects fixture URLs and verifies commit-pinned integrity)
 npm run fixtures:prepublish
 
-# 7. Verify strict fixture publication check (fails closed with code 1 prior to publication)
+# 7. Verify strict fixture publication check (passes with PUBLICATION_READY for commit-pinned fixtures)
 npm run fixtures:check
 
 # 8. Verify live integration skips safely without opt-in (0 transactions)
@@ -474,10 +490,10 @@ npm run test:integration:live
 # 9. Typecheck TypeScript deployment tooling
 npx tsc --noEmit
 
-# 10. Check on-chain deployment status (reports superseded state)
+# 10. Check on-chain deployment status (verifies canonical address and passes byte-for-byte source parity)
 npm run verify:onchain
 
-# 11. Smoke read public views from Studio Devnet
+# 11. Smoke read public views from Studio Devnet (reads canonical deployment's clean initial state)
 npm run smoke:read
 ```
 
@@ -490,7 +506,7 @@ ReserveCovenant/
 ├── contracts/
 │   └── reservecovenant.py              # Repaired GenLayer Intelligent Contract
 ├── deploy/
-│   ├── deployment_receipt.json         # Historical deployment metadata (superseded)
+│   ├── deployment_receipt.json         # Canonical Studio-dev deployment receipt
 │   ├── deployScript.ts                 # Autonomous Studio Devnet deployer
 │   ├── fixture_url_validator.ts        # Strict immutable fixture URL validator
 │   ├── harness_utils.ts                # Dynamic funding math, receipt validator, error classifier
@@ -504,6 +520,7 @@ ReserveCovenant/
 │   ├── test_harness_offline.ts         # Pure offline TypeScript harness validation (18 checks)
 │   └── verify_onchain.ts               # On-chain byte parity verifier
 ├── evidence/
+│   ├── live-integration.md             # Studio Devnet live validation & scenario evidence
 │   └── studio-dev.md                   # Studio Devnet audit evidence & defect analysis
 ├── fixtures/
 │   ├── challenger-material-disclaimer.json
@@ -528,7 +545,7 @@ ReserveCovenant/
 │       └── test_reservecovenant_live.py # Live integration suite (8 scenarios)
 ├── .github/
 │   └── workflows/
-│       └── verify.yml                  # Prepared CI workflow (not publicly executed)
+│       └── verify.yml                  # Public GitHub Actions verification workflow
 ├── .gitignore
 ├── gltest.config.yaml
 ├── LICENSE                             # Apache-2.0

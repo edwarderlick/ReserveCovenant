@@ -423,6 +423,7 @@ Confirmed on-chain: Clean initial state with zero contract balance, zero locked 
   - Code-Bearing Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (Commit [`7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`](https://github.com/edwarderlick/ReserveCovenant/commit/7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901))
   - Prior Evidence-Documentation Green CI: [Run 39233275830](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830) (Commit [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b))
   - Evidence-Integrity Green CI: [Run 39237397792](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39237397792) (Commit [`ea48c912c221c01a4a03f8d173d5e73ecdea5e41`](https://github.com/edwarderlick/ReserveCovenant/commit/ea48c912c221c01a4a03f8d173d5e73ecdea5e41))
+  - Canonical Deployment Green CI: [Run 39239662112](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39239662112) (Commit [`efd195f2d7061267d4698959b200077be04c0acc`](https://github.com/edwarderlick/ReserveCovenant/commit/efd195f2d7061267d4698959b200077be04c0acc))
 - **Authoritative Lifecycle Boundary**:
   - Live validation: COMPLETE
   - Disposable cleanup: COMPLETE
@@ -441,5 +442,6 @@ Confirmed on-chain: Clean initial state with zero contract balance, zero locked 
 4. **Public Fixture Commit Pinned**: All snapshot fixtures strictly reference public commit-pinned HTTPS raw URLs at `COMMIT_A` (`7060b5e631fb5e2581fc51f7d23bf331ee79184c`).
 5. **Lifetime Epoch Bound**: Storage is constrained to a maximum of 12 lifetime reporting epochs per contract deployment to prevent state bloat on the GenVM network.
 6. **Citation Exactness**: Semantic challenges require the cited text to exist literally (16..500 characters) within the hash-verified evidence documents; paraphrased or inferred citations are treated as unsupported and resolve `UPHELD`.
+7. **Prompt Delimiter Handling**: Untrusted semantic fields are length-bounded and treated as data by the evaluation instructions, but are not separately escaped against triple-quote delimiter collisions. This is recorded as a future hardening consideration and is not changed in the deployed canonical source.
 
 
