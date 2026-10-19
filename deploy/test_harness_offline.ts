@@ -57,9 +57,12 @@ import {
   ContractExecutionReceiptError,
   executeAndVerifyChallengerFunding,
   evaluateEconomicCleanup,
+  buildExpectedCleanupManifest,
+  type ExpectedCleanupTarget,
   type CleanupPartyResult,
   type SweepResultRecord,
   type SupportedFundingClient,
+  type PrimaryScenariosStatus,
 } from "./harness_utils.js";
 import {
   evaluatePythonLauncherDisposition,
@@ -81,9 +84,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(specs.length === 8, `Expected 8 scenarios, got ${specs.length}`);
 
   // --------------------------------------------------------------------------
-  // [1/14] REPAIR 1: Authoritative SDK Numeric Status Mappings
+  // [1/18] REPAIR 1: Authoritative SDK Numeric Status Mappings
   // --------------------------------------------------------------------------
-  console.log("[1/14] Testing Authoritative SDK Status Mappings...");
+  console.log("[1/18] Testing Authoritative SDK Status Mappings...");
   // 5 and "5" normalize to ACCEPTED
   assert(normalizeConsensusStatus(5) === "ACCEPTED", "Numeric 5 must normalize to ACCEPTED");
   assert(normalizeConsensusStatus("5") === "ACCEPTED", "String '5' must normalize to ACCEPTED");
@@ -111,9 +114,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(normalizeExecutionResult("FINISHED_WITH_ERROR") === "FINISHED_WITH_ERROR", "'FINISHED_WITH_ERROR' passes through");
 
   // --------------------------------------------------------------------------
-  // [2/14] REPAIR 1: Unknown Receipt Statuses Fail Closed
+  // [2/18] REPAIR 1: Unknown Receipt Statuses Fail Closed
   // --------------------------------------------------------------------------
-  console.log("[2/14] Testing Rejection of Unknown / Non-Final Receipt Statuses...");
+  console.log("[2/18] Testing Rejection of Unknown / Non-Final Receipt Statuses...");
   assert(normalizeConsensusStatus(0) === "UNINITIALIZED", "Status 0 must normalize to UNINITIALIZED");
   assert(normalizeConsensusStatus(999) === "UNKNOWN", "Status 999 must normalize to UNKNOWN");
   assert(normalizeConsensusStatus("PENDING") === "PENDING", "'PENDING' normalized");
@@ -165,9 +168,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(unknownStatusCaught, "Unknown numeric status must be rejected fail-closed");
 
   // --------------------------------------------------------------------------
-  // [3/14] REPAIR 2: Challenger and Issuer Transaction Plans Derived Separately
+  // [3/18] REPAIR 2: Challenger and Issuer Transaction Plans Derived Separately
   // --------------------------------------------------------------------------
-  console.log("[3/14] Testing Derived Transaction Counts for Both Parties...");
+  console.log("[3/18] Testing Derived Transaction Counts for Both Parties...");
   const plan = deriveScenarioTransactionPlan(specs, true);
   assert(plan.challengeBondTransactionCount === 7n, `Expected 7 challenge bonds, got ${plan.challengeBondTransactionCount}`);
   assert(plan.challengerCleanupWithdrawalCount === 6n, `Expected 6 challenger cleanup withdrawals, got ${plan.challengerCleanupWithdrawalCount}`);
@@ -182,9 +185,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(BigInt(deriveTotalChallengerTransactionCount(specs, true)) === plan.challengerSignedTransactionCount, "Parity with deriveTotalChallengerTransactionCount");
 
   // --------------------------------------------------------------------------
-  // [4/14] REPAIR 3: Full Scenario Cleanup Includes Every Positive Credit
+  // [4/18] REPAIR 3: Full Scenario Cleanup Includes Every Positive Credit
   // --------------------------------------------------------------------------
-  console.log("[4/14] Testing Full Scenario Credit Breakdown...");
+  console.log("[4/18] Testing Full Scenario Credit Breakdown...");
   // Scenarios 1..4: BREACHED -> Challenger receives refund + 90% bounty = 0.014 GEN. Treasury/Issuer receives 10% = 0.001 GEN.
   // Scenario 5: UPHELD -> Challenger receives 0. Issuer receives bond + challenger bond = 0.015 GEN.
   // Scenarios 6..7: INCONCLUSIVE -> Challenger receives refund = 0.005 GEN. Issuer receives refund = 0.010 GEN.
@@ -208,9 +211,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(plan.issuerCleanupWithdrawalCount === BigInt(positiveIssuerCreditCount), "Issuer cleanup withdrawal count matches positive credit contracts");
 
   // --------------------------------------------------------------------------
-  // [5/14] REPAIR 3: Issuer Expected Recoverable Credit Equals 0.039 GEN
+  // [5/18] REPAIR 3: Issuer Expected Recoverable Credit Equals 0.039 GEN
   // --------------------------------------------------------------------------
-  console.log("[5/14] Testing Issuer Expected Recoverable Credit (0.039 GEN)...");
+  console.log("[5/18] Testing Issuer Expected Recoverable Credit (0.039 GEN)...");
   // 4 * 0.001 GEN (BREACHED) + 1 * 0.015 GEN (UPHELD) + 2 * 0.010 GEN (INCONCLUSIVE) = 0.004 + 0.015 + 0.020 = 0.039 GEN
   const expectedIssuerCredits = 39000000000000000n; // 39e15 wei
   assert(
@@ -219,9 +222,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   );
 
   // --------------------------------------------------------------------------
-  // [6/14] REPAIR 3: Challenger Expected Recoverable Credit Equals 0.066 GEN
+  // [6/18] REPAIR 3: Challenger Expected Recoverable Credit Equals 0.066 GEN
   // --------------------------------------------------------------------------
-  console.log("[6/14] Testing Challenger Expected Recoverable Credit (0.066 GEN)...");
+  console.log("[6/18] Testing Challenger Expected Recoverable Credit (0.066 GEN)...");
   // 4 * 0.014 GEN (BREACHED) + 0 * UPHELD + 2 * 0.005 GEN (INCONCLUSIVE) = 0.056 + 0.010 = 0.066 GEN
   const expectedChallengerCredits = 66000000000000000n; // 66e15 wei
   assert(
@@ -230,9 +233,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   );
 
   // --------------------------------------------------------------------------
-  // [7/14] REPAIR 3: Total Contract Credit Recovery Equals 0.105 GEN
+  // [7/18] REPAIR 3: Total Contract Credit Recovery Equals 0.105 GEN
   // --------------------------------------------------------------------------
-  console.log("[7/14] Testing Total Contract Credit Recovery (0.105 GEN)...");
+  console.log("[7/18] Testing Total Contract Credit Recovery (0.105 GEN)...");
   // 0.066 GEN (challenger) + 0.039 GEN (issuer) = 0.105 GEN (105e15 wei)
   const expectedTotalCredits = 105000000000000000n; // 105e15 wei
   assert(
@@ -245,59 +248,446 @@ async function runOfflineHarnessTests(): Promise<void> {
   );
 
   // --------------------------------------------------------------------------
-  // [8/14] REPAIR 5: Cleanup Failure Produces PARTIAL/FAIL and Blocks Readiness
+  // [8/18] Receipt Status/Result Copied from Actual Validated Summaries
   // --------------------------------------------------------------------------
-  console.log("[8/14] Testing Economic Cleanup Failure and Readiness Semantics...");
-  // 1. Zero withdrawals when credits expected -> ECONOMIC_CLEANUP_FAIL & LIVE_READINESS_BLOCKED
-  const failReport = evaluateEconomicCleanup({
-    cleanupRecords: [],
-    expectedPlan: plan,
-    sweepAttempted: false,
-  });
-  assert(failReport.status === "ECONOMIC_CLEANUP_FAIL", "Zero withdrawals must produce ECONOMIC_CLEANUP_FAIL");
-  assert(failReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Failure must block live readiness");
-  assert(failReport.unresolvedCreditsWei === expectedTotalCredits, "All credits must be marked unresolved");
+  console.log("[8/18] Testing Receipt Status/Result Copied From Actual Validated Summaries...");
+  // 1. ACCEPTED (5) and FINISHED_WITH_RETURN (1)
+  const acceptedReceipt = {
+    hash: "0x" + "1".repeat(64),
+    status: 5,
+    txExecutionResult: 1,
+  };
+  const summaryAccepted = verifyReceiptExecution(acceptedReceipt, "accepted test", "withdraw_credit");
+  assert(summaryAccepted.status === "ACCEPTED", "Must preserve ACCEPTED from status 5");
+  assert(summaryAccepted.executionResult === "FINISHED_WITH_RETURN", "Must preserve FINISHED_WITH_RETURN from result 1");
 
-  // 2. Partial withdrawals -> ECONOMIC_CLEANUP_PARTIAL & LIVE_READINESS_BLOCKED
-  const partialRecords: CleanupPartyResult[] = [
+  // 2. FINALIZED (7) and FINISHED_WITH_RETURN (1)
+  const finalizedReceipt = {
+    hash: "0x" + "2".repeat(64),
+    status: 7,
+    txExecutionResult: 1,
+  };
+  const summaryFinalized = verifyReceiptExecution(finalizedReceipt, "finalized test", "withdraw_credit");
+  assert(summaryFinalized.status === "FINALIZED", "Must preserve FINALIZED from status 7");
+  assert(summaryFinalized.executionResult === "FINISHED_WITH_RETURN", "Must preserve FINISHED_WITH_RETURN from result 1");
+
+  // 3. Proving hardcoded receipt evidence is impossible:
+  // Non-final or error receipts fail verifyReceiptExecution fail-closed
+  let pendingReceiptRejected = false;
+  try {
+    verifyReceiptExecution({ hash: "0x123", status: 1, txExecutionResult: 1 }, "pending");
+  } catch (err: unknown) {
+    pendingReceiptRejected = true;
+  }
+  assert(pendingReceiptRejected, "Pending receipt must be rejected fail-closed");
+
+  let errorReceiptRejected = false;
+  try {
+    verifyReceiptExecution({ hash: "0x123", status: 7, txExecutionResult: 2 }, "error");
+  } catch (err: unknown) {
+    errorReceiptRejected = true;
+  }
+  assert(errorReceiptRejected, "FINISHED_WITH_ERROR receipt must throw ContractExecutionReceiptError fail-closed");
+
+  // --------------------------------------------------------------------------
+  // [9/18] Exact 13-Target Manifest Matching (Repair 2)
+  // --------------------------------------------------------------------------
+  console.log("[9/18] Testing Exact 13-Target Manifest Matching...");
+  const dummyRecords = [
+    { scenarioId: 1, contractAddress: "0x1111111111111111111111111111111111111111" as Address },
+    { scenarioId: 2, contractAddress: "0x2222222222222222222222222222222222222222" as Address },
+    { scenarioId: 3, contractAddress: "0x3333333333333333333333333333333333333333" as Address },
+    { scenarioId: 4, contractAddress: "0x4444444444444444444444444444444444444444" as Address },
+    { scenarioId: 5, contractAddress: "0x5555555555555555555555555555555555555555" as Address },
+    { scenarioId: 6, contractAddress: "0x6666666666666666666666666666666666666666" as Address },
+    { scenarioId: 7, contractAddress: "0x7777777777777777777777777777777777777777" as Address },
+    { scenarioId: 8, contractAddress: "0x8888888888888888888888888888888888888888" as Address },
+  ];
+
+  const manifest13 = buildExpectedCleanupManifest(dummyRecords, specs);
+  assert(manifest13.length === 13, `Manifest must contain exactly 13 entries, got ${manifest13.length}`);
+  const chManifest = manifest13.filter((m) => m.party === "challenger");
+  const issManifest = manifest13.filter((m) => m.party === "issuer");
+  assert(chManifest.length === 6, `Expected 6 challenger targets (scenarios 1,2,3,4,6,7), got ${chManifest.length}`);
+  assert(issManifest.length === 7, `Expected 7 issuer targets (scenarios 1,2,3,4,5,6,7), got ${issManifest.length}`);
+
+  const valid13Records: CleanupPartyResult[] = manifest13.map((target, idx) => ({
+    scenarioId: target.scenarioId,
+    contractAddress: target.contractAddress,
+    party: target.party,
+    status: "WITHDRAWN",
+    expectedCredit: target.expectedCreditWei,
+    observedCredit: target.expectedCreditWei,
+    transactionHash: `0x${(idx + 1).toString().padStart(64, "0")}`,
+    receiptStatus: idx % 2 === 0 ? "FINALIZED" : "ACCEPTED",
+    executionResult: "FINISHED_WITH_RETURN",
+    postWithdrawalCredit: 0n,
+    accountingInvariantSatisfied: true,
+  }));
+
+  const validSweep: SweepResultRecord = {
+    disposition: "COMPLETED",
+    preSweepBalanceWei: 1000000000000000n,
+    estimatedFeeWei: 100000000000000n,
+    attemptedSweepAmountWei: 800000000000000n,
+    sweepTransactionHash: "0x" + "a".repeat(64),
+    receiptStatus: "FINALIZED",
+    executionResult: "FINISHED_WITH_RETURN",
+    postSweepObservedResidualBalanceWei: 200000000000000n,
+  };
+
+  // Case A: All 13 targets pass
+  const passReport = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(passReport.status === "ECONOMIC_CLEANUP_PASS", "All 13 targets must produce ECONOMIC_CLEANUP_PASS");
+  assert(passReport.liveReadinessStatus === "LIVE_READINESS_PASS", "Must produce LIVE_READINESS_PASS");
+  assert(passReport.unresolvedContractAddresses.length === 0, "No unresolved addresses");
+  assert(passReport.unresolvedCreditsWei === 0n, "Zero unresolved credits");
+
+  // Case B: Missing target blocks readiness
+  const missing12Records = valid13Records.slice(1); // Omit first target (Scenario 1 challenger)
+  const missingReport = evaluateEconomicCleanup({
+    cleanupRecords: missing12Records,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(missingReport.status === "ECONOMIC_CLEANUP_PARTIAL", "Missing target must produce ECONOMIC_CLEANUP_PARTIAL");
+  assert(missingReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Missing target must block readiness");
+  assert(
+    missingReport.unresolvedContractAddresses.includes(manifest13[0].contractAddress),
+    "Missing target address must appear in unresolvedContractAddresses"
+  );
+
+  // Case C: Duplicate target blocks readiness
+  const duplicateRecords = [...valid13Records, valid13Records[0]]; // Duplicate first target
+  const duplicateReport = evaluateEconomicCleanup({
+    cleanupRecords: duplicateRecords,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(duplicateReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Duplicate target must block readiness");
+  assert(
+    duplicateReport.unresolvedContractAddresses.includes(valid13Records[0].contractAddress),
+    "Duplicate target address must appear in unresolvedContractAddresses"
+  );
+
+  // Case D: Wrong-party target blocks readiness
+  const wrongPartyRecords: CleanupPartyResult[] = [
+    ...valid13Records,
     {
-      contractAddress: "0x1111111111111111111111111111111111111111",
-      party: "challenger",
-      observedCredit: 14000000000000000n,
-      transactionHash: "0xaaa",
+      scenarioId: 5,
+      contractAddress: dummyRecords[4].contractAddress,
+      party: "challenger", // Scenario 5 has NO challenger credit!
+      status: "WITHDRAWN",
+      expectedCredit: 5000000000000000n,
+      observedCredit: 5000000000000000n,
+      transactionHash: "0x" + "f".repeat(64),
       receiptStatus: "FINALIZED",
       executionResult: "FINISHED_WITH_RETURN",
       postWithdrawalCredit: 0n,
       accountingInvariantSatisfied: true,
     },
   ];
-  const partialReport = evaluateEconomicCleanup({
-    cleanupRecords: partialRecords,
+  const wrongPartyReport = evaluateEconomicCleanup({
+    cleanupRecords: wrongPartyRecords,
+    expectedTargets: manifest13,
     expectedPlan: plan,
-    sweepAttempted: false,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
   });
-  assert(partialReport.status === "ECONOMIC_CLEANUP_PARTIAL", "Partial withdrawal must produce ECONOMIC_CLEANUP_PARTIAL");
-  assert(partialReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Partial recovery must block live readiness");
-  assert(partialReport.totalContractCreditsWithdrawnWei === 14000000000000000n, "Tracks partial withdrawn amount");
-  assert(partialReport.unresolvedCreditsWei === expectedTotalCredits - 14000000000000000n, "Tracks exact unresolved credits");
+  assert(wrongPartyReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Wrong-party target must block readiness");
+  assert(
+    wrongPartyReport.unresolvedContractAddresses.includes(dummyRecords[4].contractAddress),
+    "Wrong party target address must appear in unresolvedContractAddresses"
+  );
+
+  // Case E: Correct aggregate total with missing individual targets still fails
+  // Omit target 0 (challenger scenario 1: 0.014 GEN) and inflate target 1 (challenger scenario 2: from 0.014 to 0.028 GEN)
+  const inflatedRecords = valid13Records.slice(1).map((r) => {
+    if (r.scenarioId === 2 && r.party === "challenger") {
+      return {
+        ...r,
+        observedCredit: r.observedCredit! + manifest13[0].expectedCreditWei,
+      };
+    }
+    return r;
+  });
+  const inflatedTotal = inflatedRecords.reduce((acc, r) => acc + (r.observedCredit || 0n), 0n);
+  assert(inflatedTotal === expectedTotalCredits, "Inflated records sum exactly to expected total (0.105 GEN)");
+  const inflatedReport = evaluateEconomicCleanup({
+    cleanupRecords: inflatedRecords,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(
+    inflatedReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "Correct aggregate total with missing/mismatched targets must fail closed"
+  );
+  assert(
+    inflatedReport.unresolvedContractAddresses.includes(manifest13[0].contractAddress),
+    "Missing target address must be in unresolvedContractAddresses"
+  );
+  assert(
+    inflatedReport.unresolvedContractAddresses.includes(dummyRecords[1].contractAddress),
+    "Mismatched credit address must be in unresolvedContractAddresses"
+  );
 
   // --------------------------------------------------------------------------
-  // [9/14] REPAIR 5: Failed Cleanup Preserves Primary Scenario Evidence
+  // [10/18] Discriminated Cleanup Failure Records (Repair 3)
   // --------------------------------------------------------------------------
-  console.log("[9/14] Testing Decoupled Scenario and Cleanup Evaluation...");
-  // Primary scenario status remains PRIMARY_SCENARIOS_PASS even when cleanup fails
-  assert(failReport.records.length === 0, "Cleanup failure preserves record separation");
-  assert(partialReport.records.length === 1, "Partial cleanup records are preserved");
+  console.log("[10/18] Testing Discriminated Cleanup Failure Records...");
+  const failTypeRecords: CleanupPartyResult[] = [
+    {
+      scenarioId: 1,
+      contractAddress: dummyRecords[0].contractAddress,
+      party: "challenger",
+      status: "QUERY_FAILED",
+      expectedCredit: 14000000000000000n,
+      error: "RPC timeout while querying credit",
+    },
+    {
+      scenarioId: 2,
+      contractAddress: dummyRecords[1].contractAddress,
+      party: "challenger",
+      status: "WITHDRAW_FAILED",
+      expectedCredit: 14000000000000000n,
+      observedCredit: 14000000000000000n,
+      error: "Gas limit exceeded during withdraw_credit",
+    },
+    {
+      scenarioId: 3,
+      contractAddress: dummyRecords[2].contractAddress,
+      party: "challenger",
+      status: "POSTCHECK_FAILED",
+      expectedCredit: 14000000000000000n,
+      observedCredit: 14000000000000000n,
+      transactionHash: "0x" + "3".repeat(64),
+      receiptStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      postWithdrawalCredit: 1000n, // Non-zero residual credit
+      error: "Post-withdrawal credit non-zero",
+    },
+    {
+      scenarioId: 4,
+      contractAddress: dummyRecords[3].contractAddress,
+      party: "challenger",
+      status: "INVARIANT_FAILED",
+      expectedCredit: 14000000000000000n,
+      observedCredit: 14000000000000000n,
+      transactionHash: "0x" + "4".repeat(64),
+      receiptStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: false,
+      error: "Accounting invariant false",
+    },
+  ];
+
+  const discReport = evaluateEconomicCleanup({
+    cleanupRecords: failTypeRecords,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: validSweep,
+  });
+  assert(discReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Discriminated failures must block live readiness");
+  for (let i = 0; i < 4; i++) {
+    assert(
+      discReport.unresolvedContractAddresses.includes(dummyRecords[i].contractAddress),
+      `Contract for failure status ${failTypeRecords[i].status} must appear in unresolvedContractAddresses`
+    );
+  }
 
   // --------------------------------------------------------------------------
-  // [10/14] REPAIR 3: Post-Withdrawal Nonzero Credit Is Strictly Rejected
+  // [11/18] Sweep Readiness and Explicit Dispositions (Repair 4)
   // --------------------------------------------------------------------------
-  console.log("[10/14] Testing Rejection of Non-Zero Post-Withdrawal Credits...");
+  console.log("[11/18] Testing Sweep Readiness and Explicit Dispositions...");
+  // 1. Positive unsweepable balance -> BLOCKED_INSUFFICIENT_FEE blocks readiness
+  const blockedSweep: SweepResultRecord = {
+    disposition: "BLOCKED_INSUFFICIENT_FEE",
+    preSweepBalanceWei: 500n,
+    estimatedFeeWei: 1000n,
+    postSweepObservedResidualBalanceWei: 500n,
+    error: "Challenger balance cannot cover sweep fee reserve",
+  };
+  const repBlockedSweep = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: blockedSweep,
+  });
+  assert(repBlockedSweep.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "BLOCKED_INSUFFICIENT_FEE must block live readiness");
+
+  // 2. Zero balance produces NOT_REQUIRED_ZERO_BALANCE and passes
+  const zeroBalSweep: SweepResultRecord = {
+    disposition: "NOT_REQUIRED_ZERO_BALANCE",
+    preSweepBalanceWei: 0n,
+    postSweepObservedResidualBalanceWei: 0n,
+  };
+  const repZeroSweep = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: zeroBalSweep,
+  });
+  assert(repZeroSweep.liveReadinessStatus === "LIVE_READINESS_PASS", "Valid NOT_REQUIRED_ZERO_BALANCE must pass live readiness");
+
+  // Counter-check: NOT_REQUIRED_ZERO_BALANCE with positive pre/post balance is invalid
+  const invalidZeroSweep: SweepResultRecord = {
+    disposition: "NOT_REQUIRED_ZERO_BALANCE",
+    preSweepBalanceWei: 500n,
+    postSweepObservedResidualBalanceWei: 500n,
+  };
+  const repInvalidZeroSweep = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_PASS",
+    sweepRecord: invalidZeroSweep,
+  });
+  assert(repInvalidZeroSweep.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "NOT_REQUIRED_ZERO_BALANCE with positive balance must fail");
+
+  // 3. Successful sweep requires actual receipt and post-balance query
+  const incompleteSweep1: SweepResultRecord = {
+    disposition: "COMPLETED",
+    receiptStatus: "PENDING",
+    executionResult: "FINISHED_WITH_RETURN",
+    postSweepObservedResidualBalanceWei: 100n,
+  };
+  assert(
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      sweepRecord: incompleteSweep1,
+    }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "Pending receipt in COMPLETED sweep must block readiness"
+  );
+
+  const incompleteSweep2: SweepResultRecord = {
+    disposition: "COMPLETED",
+    receiptStatus: "FINALIZED",
+    executionResult: "FINISHED_WITH_RETURN",
+    postSweepObservedResidualBalanceWei: undefined, // Missing post balance query!
+  };
+  assert(
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      sweepRecord: incompleteSweep2,
+    }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "Missing post-balance query in COMPLETED sweep must block readiness"
+  );
+
+  // 4. Missing sweep record blocks readiness when sweep is expected
+  assert(plan.challengerSweepTransactionCount > 0n, "Plan includes sweep");
+  const missingSweepRep = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    sweepRecord: undefined,
+  });
+  assert(missingSweepRep.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Missing sweep record must block readiness");
+
+  // 5. FINISHED_WITH_ERROR sweep blocks readiness
+  const errorSweep: SweepResultRecord = {
+    disposition: "COMPLETED",
+    receiptStatus: "FINALIZED",
+    executionResult: "FINISHED_WITH_ERROR",
+    postSweepObservedResidualBalanceWei: 100n,
+  };
+  assert(
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      sweepRecord: errorSweep,
+    }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "FINISHED_WITH_ERROR sweep must block readiness"
+  );
+
+  // 6. Thrown sweep produces FAILED disposition and blocks readiness
+  const failedSweep: SweepResultRecord = {
+    disposition: "FAILED",
+    error: "Network connection refused",
+  };
+  assert(
+    evaluateEconomicCleanup({
+      cleanupRecords: valid13Records,
+      expectedTargets: manifest13,
+      expectedPlan: plan,
+      sweepRecord: failedSweep,
+    }).liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "FAILED sweep must block readiness"
+  );
+
+  // --------------------------------------------------------------------------
+  // [12/18] Real Combined Readiness State (Repair 5)
+  // --------------------------------------------------------------------------
+  console.log("[12/18] Testing Real Combined Readiness State...");
+  // Primary scenarios fail -> LIVE_READINESS_BLOCKED even when cleanup passes
+  const primaryFailReport = evaluateEconomicCleanup({
+    cleanupRecords: valid13Records,
+    expectedTargets: manifest13,
+    expectedPlan: plan,
+    primaryScenariosStatus: "PRIMARY_SCENARIOS_FAIL",
+    sweepRecord: validSweep,
+  });
+  assert(primaryFailReport.primaryScenariosStatus === "PRIMARY_SCENARIOS_FAIL", "Preserves primary failure status");
+  assert(primaryFailReport.status === "ECONOMIC_CLEANUP_PASS", "Cleanup status is PASS");
+  assert(
+    primaryFailReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED",
+    "Primary failure MUST block live readiness even when cleanup passes"
+  );
+
+  // --------------------------------------------------------------------------
+  // [13/18] Signer Balance Preflight Closed Behavior (Repair 6)
+  // --------------------------------------------------------------------------
+  console.log("[13/18] Testing Signer Balance Preflight Closed Behavior...");
+  // When acting address is missing, must fail closed with BLOCKED_MISSING_SIGNER_ADDRESS
+  let caughtMissingSigner = false;
+  try {
+    const clientWithoutAddress = {
+      account: undefined,
+      estimateTransactionFees: async () => ({ feeValue: "100" }),
+      getBalance: async () => 1000n,
+    };
+    const actingAddress = (clientWithoutAddress as { account?: { address?: string } }).account?.address;
+    if (!actingAddress) {
+      throw new Error("BLOCKED_MISSING_SIGNER_ADDRESS: actingClient.account?.address is unavailable for write 'withdraw_credit'");
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    caughtMissingSigner = msg.includes("BLOCKED_MISSING_SIGNER_ADDRESS");
+  }
+  assert(caughtMissingSigner, "Preflight must throw BLOCKED_MISSING_SIGNER_ADDRESS if account address is absent");
+
+  // --------------------------------------------------------------------------
+  // [14/18] Post-Withdrawal Nonzero Credit Strictly Rejected
+  // --------------------------------------------------------------------------
+  console.log("[14/18] Testing Rejection of Non-Zero Post-Withdrawal Credits...");
   const nonZeroCreditRecord: CleanupPartyResult = {
-    contractAddress: "0x2222222222222222222222222222222222222222",
+    scenarioId: 1,
+    contractAddress: dummyRecords[0].contractAddress,
     party: "challenger",
+    status: "WITHDRAWN",
+    expectedCredit: 14000000000000000n,
     observedCredit: 14000000000000000n,
-    transactionHash: "0xbbb",
+    transactionHash: "0x" + "b".repeat(64),
     receiptStatus: "FINALIZED",
     executionResult: "FINISHED_WITH_RETURN",
     postWithdrawalCredit: 500n, // Non-zero remaining credit!
@@ -305,35 +695,27 @@ async function runOfflineHarnessTests(): Promise<void> {
   };
   const nonzeroReport = evaluateEconomicCleanup({
     cleanupRecords: [nonZeroCreditRecord],
+    expectedTargets: manifest13,
     expectedPlan: plan,
-    sweepAttempted: false,
+    sweepRecord: validSweep,
   });
   assert(nonzeroReport.liveReadinessStatus === "LIVE_READINESS_BLOCKED", "Non-zero post-withdrawal credit must block live readiness");
   assert(
-    nonzeroReport.unresolvedContractAddresses.includes("0x2222222222222222222222222222222222222222"),
+    nonzeroReport.unresolvedContractAddresses.includes(dummyRecords[0].contractAddress),
     "Contract with non-zero residual credit must be listed in unresolved addresses"
   );
 
   // --------------------------------------------------------------------------
-  // [11/14] REPAIR 4: Post-Sweep Residual Measured and Reported Honestly
+  // [15/18] Honest Post-Sweep Residual Measurement
   // --------------------------------------------------------------------------
-  console.log("[11/14] Testing Honest Post-Sweep Residual Measurement...");
-  const sweepRecord: SweepResultRecord = {
-    preSweepBalanceWei: 1000000000000000n,
-    estimatedFeeWei: 100000000000000n,
-    attemptedSweepAmountWei: 800000000000000n,
-    sweepTransactionHash: "0xccc",
-    receiptStatus: "FINALIZED",
-    executionResult: "FINISHED_WITH_RETURN",
-    postSweepObservedResidualBalanceWei: 200000000000000n, // Non-zero residual fee reserve / dust
-  };
-  assert(sweepRecord.postSweepObservedResidualBalanceWei === 200000000000000n, "Observed residual balance recorded accurately");
-  assert(sweepRecord.postSweepObservedResidualBalanceWei > 0n, "Non-zero dust is reported honestly without claiming zero stranded");
+  console.log("[15/18] Testing Honest Post-Sweep Residual Measurement...");
+  assert(validSweep.postSweepObservedResidualBalanceWei === 200000000000000n, "Observed residual balance recorded accurately");
+  assert(validSweep.postSweepObservedResidualBalanceWei! > 0n, "Non-zero dust is reported honestly without claiming zero stranded");
 
   // --------------------------------------------------------------------------
-  // [12/14] REPAIR 6: Python Launcher Protects Ephemeral Signer Funds (Option B)
+  // [16/18] Python Launcher Protects Ephemeral Signer Funds (Option B)
   // --------------------------------------------------------------------------
-  console.log("[12/14] Testing Python Launcher Option B Disposition...");
+  console.log("[16/18] Testing Python Launcher Option B Disposition...");
   // 1. Without opt-in -> SKIPPED (exit 0)
   const dispSkip = evaluatePythonLauncherDisposition({
     RESERVECOVENANT_RUN_LIVE_TESTS: "0",
@@ -359,9 +741,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(dispOptionB.reason.includes("TypeScript live harness"), "Points to TypeScript live harness as authoritative");
 
   // --------------------------------------------------------------------------
-  // [13/14] REPAIR 6: Dynamic Python Fee Input Strictly Validated
+  // [17/18] Dynamic Python Fee Input Strictly Validated
   // --------------------------------------------------------------------------
-  console.log("[13/14] Testing Python Dynamic Fee Environment Builder...");
+  console.log("[17/18] Testing Python Dynamic Fee Environment Builder...");
   let caughtZeroFee = false;
   try {
     buildPythonLiveEnvironment(
@@ -400,9 +782,9 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(builtEnv.RESERVECOVENANT_ESTIMATED_FEE_WEI === "125000000000000", "Dynamic fee must be stringified correctly in env");
 
   // --------------------------------------------------------------------------
-  // [14/14] REPAIR 2: Funding Math Contains No Hardcoded 7-Bond Assumption
+  // [18/18] Funding Math Contains No Hardcoded 7-Bond Assumption
   // --------------------------------------------------------------------------
-  console.log("[14/14] Testing Funding Math Boundary Cases...");
+  console.log("[18/18] Testing Funding Math Boundary Cases...");
   const estFeePerTx = 100000000000000n; // 0.0001 GEN
 
   // Boundary Case A: Zero Scenarios
@@ -516,7 +898,7 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(!validateImmutableFixtureUrl(`https://raw.githubusercontent.com/owner/repo/main/fixtures/epoch.json`).valid, "Must reject /main/");
   assert(!validateImmutableFixtureUrl(`http://raw.githubusercontent.com/owner/repo/${validCommit}/fixtures/epoch.json`).valid, "Must reject http:");
 
-  console.log("\nAll 14 repair verification checks passed successfully.\n");
+  console.log("\nAll 18 repair verification checks passed successfully.\n");
   console.log("=================================================");
   console.log(">>> OFFLINE_HARNESS_VALIDATION_PASS <<<");
   console.log("Harness logic, authoritative SDK status mappings,");

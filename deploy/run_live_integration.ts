@@ -39,8 +39,13 @@ import {
   expectContractExecutionError,
   executeAndVerifyChallengerFunding,
   evaluateEconomicCleanup,
+  buildExpectedCleanupManifest,
+  type ExecWriteResult,
+  type ExpectedCleanupTarget,
   type CleanupPartyResult,
   type SweepResultRecord,
+  type PrimaryScenariosStatus,
+  type ValidatedReceiptSummary,
 } from "./harness_utils.js";
 
 export const DEFAULT_ISSUER_BOND = 10000000000000000n; // 0.01 GEN
@@ -372,20 +377,27 @@ async function runLiveIntegration(): Promise<void> {
     fn: string,
     args: CalldataEncodable[] = [],
     val: bigint = 0n
-  ): Promise<Hash> => {
+  ): Promise<ExecWriteResult> => {
+    const actingAddress = (actingClient.account?.address) as Address | undefined;
+    if (!actingAddress) {
+      throw new Error(
+        `BLOCKED_MISSING_SIGNER_ADDRESS: actingClient.account?.address is unavailable for write '${fn}'`
+      );
+    }
+
     const fees = await actingClient.estimateTransactionFees();
     const feeVal = BigInt(fees.feeValue);
-    const actingAddress = (actingClient.account?.address) as Address | undefined;
+    // Bounded safety margin: 20% of estimated fee + 0.0001 GEN (100000000000000n wei)
+    const safetyMargin = (feeVal * 20n) / 100n + 100000000000000n;
+    const requiredBal = feeVal + val + safetyMargin;
 
     // Fresh balance preflight check immediately before write
-    if (actingAddress) {
-      const currentBal = await actingClient.getBalance({ address: actingAddress });
-      if (currentBal < feeVal + val) {
-        throw new Error(
-          `BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE: Signer balance (${currentBal.toString()} wei) ` +
-          `is insufficient for upcoming write '${fn}' (requires ${feeVal.toString()} fee + ${val.toString()} value).`
-        );
-      }
+    const currentBal = await actingClient.getBalance({ address: actingAddress });
+    if (currentBal < requiredBal) {
+      throw new Error(
+        `BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE: Signer balance (${currentBal.toString()} wei) ` +
+        `is insufficient for upcoming write '${fn}' (requires ${feeVal.toString()} fee + ${val.toString()} value + ${safetyMargin.toString()} safety margin = ${requiredBal.toString()} wei).`
+      );
     }
 
     const hash = await actingClient.writeContract({
@@ -400,8 +412,13 @@ async function runLiveIntegration(): Promise<void> {
       },
     });
     const receipt = await actingClient.waitForTransactionReceipt({ hash });
-    verifyReceiptExecution(receipt, `execWrite ${fn}`, fn);
-    return hash;
+    const summary = verifyReceiptExecution(receipt, `execWrite ${fn}`, fn);
+    return {
+      transactionHash: hash,
+      receiptStatus: summary.status,
+      executionResult: summary.executionResult,
+      receiptSummary: summary,
+    };
   };
 
   const records: ScenarioRecord[] = [];
@@ -424,7 +441,7 @@ async function runLiveIntegration(): Promise<void> {
       snapSha = getFixtureSha(spec.snapshotFile);
     }
 
-    const pubTx = await execWrite(issuerClient, dispAddr, "publish_epoch", [snapUrl, snapSha], DEFAULT_ISSUER_BOND);
+    const pubRes = await execWrite(issuerClient, dispAddr, "publish_epoch", [snapUrl, snapSha], DEFAULT_ISSUER_BOND);
 
     let evUrl: string;
     let evSha: string;
@@ -437,7 +454,7 @@ async function runLiveIntegration(): Promise<void> {
     }
 
     // Challenger signs open_challenge
-    const chalTx = await execWrite(
+    const chalRes = await execWrite(
       challengerClient,
       dispAddr,
       "open_challenge",
@@ -446,7 +463,7 @@ async function runLiveIntegration(): Promise<void> {
     );
 
     // Permissionless resolution (signed by issuer client)
-    const resTx = await execWrite(issuerClient, dispAddr, "resolve_challenge", [1]);
+    const resResult = await execWrite(issuerClient, dispAddr, "resolve_challenge", [1]);
 
     const status = await issuerClient.readContract({
       address: dispAddr,
@@ -478,9 +495,9 @@ async function runLiveIntegration(): Promise<void> {
       name: spec.name,
       contractAddress: dispAddr,
       deployTxHash: depTx,
-      publishTxHash: pubTx,
-      challengeTxHash: chalTx,
-      resolveTxHash: resTx,
+      publishTxHash: pubRes.transactionHash,
+      challengeTxHash: chalRes.transactionHash,
+      resolveTxHash: resResult.transactionHash,
       finalStatus: status as string,
       accountingInvariant: accounting.invariant_satisfied,
     };
@@ -497,14 +514,14 @@ async function runLiveIntegration(): Promise<void> {
   // --- Scenario 7: Repeated Resolution Reverts on FRESH Contract ---
   console.log("\n--- Scenario 7: Repeated Resolution Reverts (Fresh Contract) ---");
   const { address: addr7, txHash: depTx7 } = await deployDisposableInstance(issuerClient, contractSource, issuerSigner.account.address);
-  const pubTx7 = await execWrite(
+  const pubRes7 = await execWrite(
     issuerClient,
     addr7,
     "publish_epoch",
     ["https://unreachable-domain-12345.example.com/snapshot.json", "0".repeat(64)],
     DEFAULT_ISSUER_BOND
   );
-  const chalTx7 = await execWrite(
+  const chalRes7 = await execWrite(
     challengerClient,
     addr7,
     "open_challenge",
@@ -520,7 +537,7 @@ async function runLiveIntegration(): Promise<void> {
   );
 
   // First resolution succeeds and transitions to terminal INCONCLUSIVE
-  const resTx7First = await execWrite(issuerClient, addr7, "resolve_challenge", [1]);
+  const resRes7First = await execWrite(issuerClient, addr7, "resolve_challenge", [1]);
   const status7Before = await issuerClient.readContract({
     address: addr7,
     functionName: "get_current_status",
@@ -546,7 +563,7 @@ async function runLiveIntegration(): Promise<void> {
   // Second resolution must revert on-chain because epoch is no longer in CHALLENGED state
   await expectContractExecutionError(
     async () => {
-      return await execWrite(issuerClient, addr7, "resolve_challenge", [1]);
+      return (await execWrite(issuerClient, addr7, "resolve_challenge", [1])).receiptSummary.rawReceipt;
     },
     {
       expectedMethod: "resolve_challenge",
@@ -579,9 +596,9 @@ async function runLiveIntegration(): Promise<void> {
     name: "Repeated Resolution Reverts",
     contractAddress: addr7,
     deployTxHash: depTx7,
-    publishTxHash: pubTx7,
-    challengeTxHash: chalTx7,
-    resolveTxHash: resTx7First,
+    publishTxHash: pubRes7.transactionHash,
+    challengeTxHash: chalRes7.transactionHash,
+    resolveTxHash: resRes7First.transactionHash,
     finalStatus: "INCONCLUSIVE",
     accountingInvariant: acct7Final.invariant_satisfied,
   });
@@ -590,14 +607,14 @@ async function runLiveIntegration(): Promise<void> {
   // --- Scenario 8: Pull-Credit Withdrawal & No Double-Spend ---
   console.log("\n--- Scenario 8: Pull-Credit Withdrawal & No Double-Spend ---");
   const { address: addr8, txHash: depTx8 } = await deployDisposableInstance(issuerClient, contractSource, issuerSigner.account.address);
-  const pubTx8 = await execWrite(
+  const pubRes8 = await execWrite(
     issuerClient,
     addr8,
     "publish_epoch",
     ["https://unreachable-domain-12345.example.com/snapshot.json", "0".repeat(64)],
     DEFAULT_ISSUER_BOND
   );
-  const cancelTx8 = await execWrite(issuerClient, addr8, "cancel_epoch", [1]);
+  const cancelRes8 = await execWrite(issuerClient, addr8, "cancel_epoch", [1]);
 
   const acct8CancelRaw = await issuerClient.readContract({
     address: addr8,
@@ -622,7 +639,7 @@ async function runLiveIntegration(): Promise<void> {
     throw new Error(`Scenario 8 failed: expected credit ${DEFAULT_ISSUER_BOND}, got ${creditBefore}`);
   }
 
-  const withdrawTx8 = await execWrite(issuerClient, addr8, "withdraw_credit", []);
+  const withdrawRes8 = await execWrite(issuerClient, addr8, "withdraw_credit", []);
   const creditAfter = parseCredit(await issuerClient.readContract({
     address: addr8,
     functionName: "get_credit",
@@ -648,7 +665,7 @@ async function runLiveIntegration(): Promise<void> {
   // Second withdrawal must revert because available credit is zero
   await expectContractExecutionError(
     async () => {
-      return await execWrite(issuerClient, addr8, "withdraw_credit", []);
+      return (await execWrite(issuerClient, addr8, "withdraw_credit", [])).receiptSummary.rawReceipt;
     },
     {
       expectedMethod: "withdraw_credit",
@@ -681,168 +698,299 @@ async function runLiveIntegration(): Promise<void> {
     name: "Pull-Credit Withdrawal & No Double-Spend",
     contractAddress: addr8,
     deployTxHash: depTx8,
-    publishTxHash: pubTx8,
-    challengeTxHash: cancelTx8,
-    resolveTxHash: withdrawTx8,
+    publishTxHash: pubRes8.transactionHash,
+    challengeTxHash: cancelRes8.transactionHash,
+    resolveTxHash: withdrawRes8.transactionHash,
     finalStatus: "CANCELLED",
     accountingInvariant: acct8Final.invariant_satisfied,
   });
   console.log(`[PASS] Scenario 8 completed: Single withdrawal succeeded and double withdrawal reverted cleanly.`);
 
-  // --- Phase 7: Comprehensive Economic Cleanup & Fund Recovery (Repair 3 & 4) ---
+  // --- Phase 7: Comprehensive Economic Cleanup & Fund Recovery ---
   console.log("\n--- Phase 7: Comprehensive Economic Cleanup & Fund Recovery ---");
-  console.log("Withdrawing accumulated challenger and issuer credits from disposable contract instances...");
-  const cleanupRecords: CleanupPartyResult[] = [];
+  console.log("Constructing exact expected cleanup manifest from completed scenario records...");
 
-  for (const record of records) {
-    const contractAddr = record.contractAddress;
-
-    // 1. Challenger Credit Recovery
-    try {
-      const chalCreditRaw = await issuerClient.readContract({
-        address: contractAddr,
-        functionName: "get_credit",
-        args: [challengerAccount.address],
-      });
-      const chalCredit = parseCredit(chalCreditRaw);
-      if (chalCredit > 0n) {
-        console.log(`[cleanup-challenger] Withdrawing ${chalCredit.toString()} wei credit from contract ${contractAddr}...`);
-        const withdrawHash = await execWrite(challengerClient, contractAddr, "withdraw_credit", []);
-        const postCreditRaw = await issuerClient.readContract({
-          address: contractAddr,
-          functionName: "get_credit",
-          args: [challengerAccount.address],
-        });
-        const postCredit = parseCredit(postCreditRaw);
-        const acctRaw = await issuerClient.readContract({
-          address: contractAddr,
-          functionName: "get_accounting",
-          args: [],
-        });
-        const acct = parseAccounting(acctRaw);
-
-        cleanupRecords.push({
-          contractAddress: contractAddr,
-          party: "challenger",
-          observedCredit: chalCredit,
-          transactionHash: withdrawHash,
-          receiptStatus: "FINALIZED",
-          executionResult: "FINISHED_WITH_RETURN",
-          postWithdrawalCredit: postCredit,
-          accountingInvariantSatisfied: acct.invariant_satisfied,
-        });
-        if (postCredit !== 0n) {
-          console.error(`[cleanup-error] Post-withdrawal challenger credit in ${contractAddr} is non-zero: ${postCredit.toString()} wei.`);
-        }
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[cleanup-warning] Challenger cleanup error on ${contractAddr}: ${msg}`);
-    }
-
-    // 2. Issuer / Treasury Credit Recovery
-    try {
-      const issuerCreditRaw = await issuerClient.readContract({
-        address: contractAddr,
-        functionName: "get_credit",
-        args: [issuerSigner.address],
-      });
-      const issuerCredit = parseCredit(issuerCreditRaw);
-      if (issuerCredit > 0n) {
-        console.log(`[cleanup-issuer] Withdrawing ${issuerCredit.toString()} wei credit from contract ${contractAddr}...`);
-        const withdrawHash = await execWrite(issuerClient, contractAddr, "withdraw_credit", []);
-        const postCreditRaw = await issuerClient.readContract({
-          address: contractAddr,
-          functionName: "get_credit",
-          args: [issuerSigner.address],
-        });
-        const postCredit = parseCredit(postCreditRaw);
-        const acctRaw = await issuerClient.readContract({
-          address: contractAddr,
-          functionName: "get_accounting",
-          args: [],
-        });
-        const acct = parseAccounting(acctRaw);
-
-        cleanupRecords.push({
-          contractAddress: contractAddr,
-          party: "issuer",
-          observedCredit: issuerCredit,
-          transactionHash: withdrawHash,
-          receiptStatus: "FINALIZED",
-          executionResult: "FINISHED_WITH_RETURN",
-          postWithdrawalCredit: postCredit,
-          accountingInvariantSatisfied: acct.invariant_satisfied,
-        });
-        if (postCredit !== 0n) {
-          console.error(`[cleanup-error] Post-withdrawal issuer credit in ${contractAddr} is non-zero: ${postCredit.toString()} wei.`);
-        }
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[cleanup-warning] Issuer cleanup error on ${contractAddr}: ${msg}`);
-    }
+  const expectedTargets = buildExpectedCleanupManifest(records, specs);
+  console.log(`Expected cleanup targets: ${expectedTargets.length} entries`);
+  for (const target of expectedTargets) {
+    console.log(
+      ` - Scenario ${target.scenarioId} | Party: ${target.party.padEnd(10)} | Contract: ${target.contractAddress} | Expected: ${target.expectedCreditWei.toString()} wei`
+    );
   }
 
-  // 3. Measurable Challenger Balance Sweep Back to Issuer (Repair 4)
-  let sweepRecord: SweepResultRecord | undefined;
-  let sweepAttempted = false;
+  const cleanupRecords: CleanupPartyResult[] = [];
+
+  for (const target of expectedTargets) {
+    const { scenarioId, contractAddress, party, expectedCreditWei } = target;
+    const actingClient = party === "challenger" ? challengerClient : issuerClient;
+    const actingAddress = party === "challenger" ? challengerAccount.address : issuerSigner.address;
+
+    let observedCredit: bigint | undefined;
+    let withdrawHash: Hash | undefined;
+    let receiptStatus: string | undefined;
+    let executionResult: string | undefined;
+    let receiptSummary: ValidatedReceiptSummary | undefined;
+    let postWithdrawalCredit: bigint | undefined;
+
+    // Step 1: Query credit
+    try {
+      const creditRaw = await issuerClient.readContract({
+        address: contractAddress,
+        functionName: "get_credit",
+        args: [actingAddress],
+      });
+      observedCredit = parseCredit(creditRaw);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[cleanup-error] Query failed for ${party} on ${contractAddress}: ${errMsg}`);
+      cleanupRecords.push({
+        scenarioId,
+        contractAddress,
+        party,
+        status: "QUERY_FAILED",
+        expectedCredit: expectedCreditWei,
+        error: `Query failed: ${errMsg}`,
+      });
+      continue;
+    }
+
+    if (observedCredit !== expectedCreditWei) {
+      const errMsg = `Observed credit (${observedCredit.toString()} wei) does not equal expected credit (${expectedCreditWei.toString()} wei)`;
+      console.warn(`[cleanup-error] Credit mismatch for ${party} on ${contractAddress}: ${errMsg}`);
+      cleanupRecords.push({
+        scenarioId,
+        contractAddress,
+        party,
+        status: "QUERY_FAILED",
+        expectedCredit: expectedCreditWei,
+        observedCredit,
+        error: errMsg,
+      });
+      continue;
+    }
+
+    // Step 2: Withdraw credit via execWrite (actual receipt evidence recorded)
+    try {
+      console.log(`[cleanup-${party}] Withdrawing ${observedCredit.toString()} wei credit from ${contractAddress}...`);
+      const writeRes = await execWrite(actingClient, contractAddress, "withdraw_credit", []);
+      withdrawHash = writeRes.transactionHash;
+      receiptStatus = writeRes.receiptStatus;
+      executionResult = writeRes.executionResult;
+      receiptSummary = writeRes.receiptSummary;
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[cleanup-error] Withdrawal failed for ${party} on ${contractAddress}: ${errMsg}`);
+      cleanupRecords.push({
+        scenarioId,
+        contractAddress,
+        party,
+        status: "WITHDRAW_FAILED",
+        expectedCredit: expectedCreditWei,
+        observedCredit,
+        error: `Withdrawal failed: ${errMsg}`,
+      });
+      continue;
+    }
+
+    // Step 3: Post-check credit is zero
+    try {
+      const postCreditRaw = await issuerClient.readContract({
+        address: contractAddress,
+        functionName: "get_credit",
+        args: [actingAddress],
+      });
+      postWithdrawalCredit = parseCredit(postCreditRaw);
+      if (postWithdrawalCredit !== 0n) {
+        const errMsg = `Post-withdrawal credit is non-zero: ${postWithdrawalCredit.toString()} wei`;
+        console.error(`[cleanup-error] ${errMsg} on ${contractAddress}`);
+        cleanupRecords.push({
+          scenarioId,
+          contractAddress,
+          party,
+          status: "POSTCHECK_FAILED",
+          expectedCredit: expectedCreditWei,
+          observedCredit,
+          transactionHash: withdrawHash,
+          receiptStatus,
+          executionResult,
+          receiptSummary,
+          postWithdrawalCredit,
+          error: errMsg,
+        });
+        continue;
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[cleanup-error] Post-check query failed for ${party} on ${contractAddress}: ${errMsg}`);
+      cleanupRecords.push({
+        scenarioId,
+        contractAddress,
+        party,
+        status: "POSTCHECK_FAILED",
+        expectedCredit: expectedCreditWei,
+        observedCredit,
+        transactionHash: withdrawHash,
+        receiptStatus,
+        executionResult,
+        receiptSummary,
+        error: `Post-check query failed: ${errMsg}`,
+      });
+      continue;
+    }
+
+    // Step 4: Accounting invariant check
+    try {
+      const acctRaw = await issuerClient.readContract({
+        address: contractAddress,
+        functionName: "get_accounting",
+        args: [],
+      });
+      const acct = parseAccounting(acctRaw);
+      if (!acct.invariant_satisfied) {
+        const errMsg = `Accounting invariant broken on ${contractAddress} after withdrawal`;
+        console.error(`[cleanup-error] ${errMsg}`);
+        cleanupRecords.push({
+          scenarioId,
+          contractAddress,
+          party,
+          status: "INVARIANT_FAILED",
+          expectedCredit: expectedCreditWei,
+          observedCredit,
+          transactionHash: withdrawHash,
+          receiptStatus,
+          executionResult,
+          receiptSummary,
+          postWithdrawalCredit: 0n,
+          accountingInvariantSatisfied: false,
+          error: errMsg,
+        });
+        continue;
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[cleanup-error] Invariant query failed on ${contractAddress}: ${errMsg}`);
+      cleanupRecords.push({
+        scenarioId,
+        contractAddress,
+        party,
+        status: "INVARIANT_FAILED",
+        expectedCredit: expectedCreditWei,
+        observedCredit,
+        transactionHash: withdrawHash,
+        receiptStatus,
+        executionResult,
+        receiptSummary,
+        postWithdrawalCredit: 0n,
+        error: `Invariant query failed: ${errMsg}`,
+      });
+      continue;
+    }
+
+    // Fully verified withdrawal with actual receipt evidence
+    cleanupRecords.push({
+      scenarioId,
+      contractAddress,
+      party,
+      status: "WITHDRAWN",
+      expectedCredit: expectedCreditWei,
+      observedCredit,
+      transactionHash: withdrawHash,
+      receiptStatus,
+      executionResult,
+      receiptSummary,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    });
+  }
+
+  // 3. Measurable Challenger Balance Sweep Back to Issuer
+  let sweepRecord: SweepResultRecord;
   try {
     const preSweepBal = await issuerClient.getBalance({
       address: challengerAccount.address,
     });
-    const sweepFeeEst = await issuerClient.estimateTransactionFees();
-    const feeVal = BigInt(sweepFeeEst.feeValue);
-    const requiredFeeReserve = feeVal * 2n;
+    console.log(`[cleanup-sweep] Pre-sweep challenger balance: ${preSweepBal.toString()} wei`);
 
-    if (preSweepBal > requiredFeeReserve) {
-      sweepAttempted = true;
-      const attemptedSweepAmount = preSweepBal - requiredFeeReserve;
-      console.log(`[cleanup-sweep] Pre-sweep challenger balance: ${preSweepBal.toString()} wei`);
-      console.log(`[cleanup-sweep] Attempting sweep of ${attemptedSweepAmount.toString()} wei back to issuer...`);
-      const hash = await challengerClient.sendTransaction({
-        account: challengerAccount,
-        to: issuerSigner.account.address,
-        value: attemptedSweepAmount,
-        chain: null,
-      });
-      const receipt = await challengerClient.waitForTransactionReceipt({ hash: hash as unknown as TransactionHash });
-      const summary = verifyReceiptExecution(receipt, "challenger residual sweep", "sendTransaction");
-      const postSweepBal = await issuerClient.getBalance({
-        address: challengerAccount.address,
-      });
-
+    if (preSweepBal === 0n) {
       sweepRecord = {
-        preSweepBalanceWei: preSweepBal,
-        estimatedFeeWei: feeVal,
-        attemptedSweepAmountWei: attemptedSweepAmount,
-        sweepTransactionHash: hash,
-        receiptStatus: summary.status,
-        executionResult: summary.executionResult,
-        postSweepObservedResidualBalanceWei: postSweepBal,
+        disposition: "NOT_REQUIRED_ZERO_BALANCE",
+        preSweepBalanceWei: 0n,
+        postSweepObservedResidualBalanceWei: 0n,
       };
+      console.log(`[cleanup-sweep] Challenger balance is exactly zero; sweep not required.`);
+    } else {
+      const sweepFeeEst = await issuerClient.estimateTransactionFees();
+      const feeVal = BigInt(sweepFeeEst.feeValue);
+      const requiredFeeReserve = feeVal * 2n;
 
-      console.log(`[cleanup-sweep] Sweep finalized (tx ${hash}).`);
-      console.log(`[cleanup-sweep] Post-sweep observed residual balance: ${postSweepBal.toString()} wei.`);
+      if (preSweepBal <= requiredFeeReserve) {
+        sweepRecord = {
+          disposition: "BLOCKED_INSUFFICIENT_FEE",
+          preSweepBalanceWei: preSweepBal,
+          estimatedFeeWei: feeVal,
+          postSweepObservedResidualBalanceWei: preSweepBal,
+          error: `Challenger balance (${preSweepBal.toString()} wei) cannot cover sweep fee reserve (${requiredFeeReserve.toString()} wei).`,
+        };
+        console.warn(`[cleanup-sweep] Sweep blocked: ${sweepRecord.error}`);
+      } else {
+        const attemptedSweepAmount = preSweepBal - requiredFeeReserve;
+        console.log(`[cleanup-sweep] Attempting sweep of ${attemptedSweepAmount.toString()} wei back to issuer...`);
+        const hash = await challengerClient.sendTransaction({
+          account: challengerAccount,
+          to: issuerSigner.account.address,
+          value: attemptedSweepAmount,
+          chain: null,
+        });
+        const receipt = await challengerClient.waitForTransactionReceipt({ hash: hash as unknown as TransactionHash });
+        const summary = verifyReceiptExecution(receipt, "challenger residual sweep", "sendTransaction");
+        const postSweepBal = await issuerClient.getBalance({
+          address: challengerAccount.address,
+        });
+
+        sweepRecord = {
+          disposition: "COMPLETED",
+          preSweepBalanceWei: preSweepBal,
+          estimatedFeeWei: feeVal,
+          attemptedSweepAmountWei: attemptedSweepAmount,
+          sweepTransactionHash: hash,
+          receiptStatus: summary.status,
+          executionResult: summary.executionResult,
+          receiptSummary: summary,
+          postSweepObservedResidualBalanceWei: postSweepBal,
+        };
+
+        console.log(`[cleanup-sweep] Sweep completed with ${summary.status} and ${summary.executionResult} (tx ${hash}).`);
+        console.log(`[cleanup-sweep] Post-sweep observed residual balance (dust): ${postSweepBal.toString()} wei.`);
+      }
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[cleanup-warning] Challenger residual sweep issue: ${msg}`);
+    console.warn(`[cleanup-warning] Challenger residual sweep failed: ${msg}`);
+    sweepRecord = {
+      disposition: "FAILED",
+      error: msg,
+    };
   }
 
-  // 4. Strict Economic Cleanup Evaluation (Repair 5)
+  // 4. Strict Economic Cleanup Evaluation
+  const primaryStatus: PrimaryScenariosStatus =
+    records.length === 8 && records.every((r) => r.accountingInvariant)
+      ? "PRIMARY_SCENARIOS_PASS"
+      : "PRIMARY_SCENARIOS_FAIL";
+
   const cleanupReport = evaluateEconomicCleanup({
     cleanupRecords,
+    expectedTargets,
     expectedPlan: plan,
+    primaryScenariosStatus: primaryStatus,
     sweepRecord,
-    sweepAttempted,
   });
 
   console.log(`\n--- Economic Cleanup Evaluation ---`);
   console.log(`Total Challenger Credits Withdrawn: ${cleanupReport.totalChallengerCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedChallengerRecoverableCreditsWei.toString()} wei)`);
   console.log(`Total Issuer Credits Withdrawn:     ${cleanupReport.totalIssuerCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedIssuerRecoverableCreditsWei.toString()} wei)`);
   console.log(`Total Contract Credits Withdrawn:   ${cleanupReport.totalContractCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedTotalContractCreditsWei.toString()} wei)`);
-  console.log(`Primary Scenarios Status:           PRIMARY_SCENARIOS_PASS`);
+  console.log(`Primary Scenarios Status:           ${cleanupReport.primaryScenariosStatus}`);
   console.log(`Economic Cleanup Status:            ${cleanupReport.status}`);
   console.log(`Live Readiness Status:              ${cleanupReport.liveReadinessStatus}`);
 

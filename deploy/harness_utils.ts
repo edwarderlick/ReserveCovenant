@@ -520,6 +520,7 @@ export interface ValidatedReceiptSummary {
   status: string;
   executionResult: string;
   contractAddress?: string;
+  rawReceipt?: unknown;
 }
 
 /**
@@ -588,6 +589,7 @@ export function verifyReceiptExecution(
     status: statusName,
     executionResult,
     contractAddress,
+    rawReceipt: receipt,
   };
 }
 
@@ -650,8 +652,20 @@ export async function expectContractExecutionError(
     const recObj = actionResult as Record<string, unknown>;
     receipt = actionResult;
     txHash = String(recObj.hash || recObj.transactionHash || "");
-    status = normalizeConsensusStatus(recObj.statusName !== undefined ? recObj.statusName : recObj.status);
-    execResult = normalizeExecutionResult(recObj.txExecutionResultName !== undefined ? recObj.txExecutionResultName : recObj.txExecutionResult);
+    status = normalizeConsensusStatus(
+      recObj.statusName !== undefined
+        ? recObj.statusName
+        : recObj.receiptStatus !== undefined
+        ? recObj.receiptStatus
+        : recObj.status
+    );
+    execResult = normalizeExecutionResult(
+      recObj.txExecutionResultName !== undefined
+        ? recObj.txExecutionResultName
+        : recObj.executionResult !== undefined
+        ? recObj.executionResult
+        : recObj.txExecutionResult
+    );
     if (typeof recObj.methodName === "string" && recObj.methodName.length > 0) {
       recordedMethod = recObj.methodName;
     }
@@ -804,34 +818,153 @@ export async function executeAndVerifyChallengerFunding(
 }
 
 // ============================================================================
-// 6. Economic Cleanup & Readiness Evaluation (Repair 3, 4, 5)
+// 6. Economic Cleanup, 13-Target Manifest & Readiness Evaluation
 // ============================================================================
 
-export interface CleanupPartyResult {
-  contractAddress: Address;
-  party: "challenger" | "issuer";
-  observedCredit: bigint;
+export interface ExecWriteResult {
   transactionHash: Hash;
   receiptStatus: string;
   executionResult: string;
-  postWithdrawalCredit: bigint;
-  accountingInvariantSatisfied: boolean;
+  receiptSummary: ValidatedReceiptSummary;
 }
 
+export interface ExpectedCleanupTarget {
+  scenarioId: number;
+  contractAddress: Address;
+  party: "challenger" | "issuer";
+  expectedCreditWei: bigint;
+}
+
+/**
+ * Constructs the exact expected cleanup manifest containing one entry per expected positive credit:
+ * - Challenger: scenarios 1, 2, 3, 4, 6, 7 (6 entries)
+ * - Issuer/treasury: scenarios 1, 2, 3, 4, 5, 6, 7 (7 entries)
+ * - Total: 13 unique party/contract targets.
+ */
+export function buildExpectedCleanupManifest(
+  scenarioRecords: { scenarioId: number; contractAddress: Address }[],
+  specs: ScenarioCallSpec[],
+  bonds = {
+    issuerBond: 10000000000000000n, // 0.01 GEN
+    challengerBond: 5000000000000000n, // 0.005 GEN
+    treasuryBps: 1000n, // 10.00%
+  }
+): ExpectedCleanupTarget[] {
+  const manifest: ExpectedCleanupTarget[] = [];
+  const specMap = new Map<number, ScenarioCallSpec>(specs.map((s) => [s.scenarioId, s]));
+
+  for (const record of scenarioRecords) {
+    const spec = specMap.get(record.scenarioId);
+    if (!spec) {
+      continue;
+    }
+    const contractAddress = record.contractAddress;
+    const finalStatus = spec.expectedFinalStatus;
+
+    if (finalStatus === "BREACHED") {
+      const treasuryShare = (bonds.issuerBond * bonds.treasuryBps) / 10000n; // 0.001 GEN
+      const challengerShare = bonds.challengerBond + (bonds.issuerBond - treasuryShare); // 0.014 GEN
+
+      manifest.push({
+        scenarioId: record.scenarioId,
+        contractAddress,
+        party: "challenger",
+        expectedCreditWei: challengerShare,
+      });
+      manifest.push({
+        scenarioId: record.scenarioId,
+        contractAddress,
+        party: "issuer",
+        expectedCreditWei: treasuryShare,
+      });
+    } else if (finalStatus === "UPHELD") {
+      const issuerPayout = bonds.issuerBond + bonds.challengerBond; // 0.015 GEN
+      manifest.push({
+        scenarioId: record.scenarioId,
+        contractAddress,
+        party: "issuer",
+        expectedCreditWei: issuerPayout,
+      });
+    } else if (finalStatus === "INCONCLUSIVE") {
+      manifest.push({
+        scenarioId: record.scenarioId,
+        contractAddress,
+        party: "challenger",
+        expectedCreditWei: bonds.challengerBond, // 0.005 GEN
+      });
+      manifest.push({
+        scenarioId: record.scenarioId,
+        contractAddress,
+        party: "issuer",
+        expectedCreditWei: bonds.issuerBond, // 0.010 GEN
+      });
+    }
+    // CANCELLED (scenario 8): Issuer withdraws credit inside scenario; remaining credit is 0.
+  }
+
+  return manifest;
+}
+
+export type CleanupRecordStatus =
+  | "WITHDRAWN"
+  | "QUERY_FAILED"
+  | "WITHDRAW_FAILED"
+  | "POSTCHECK_FAILED"
+  | "INVARIANT_FAILED";
+
+export interface CleanupPartyResult {
+  scenarioId: number;
+  contractAddress: Address;
+  party: "challenger" | "issuer";
+  status: CleanupRecordStatus;
+  expectedCredit: bigint;
+  observedCredit?: bigint;
+  transactionHash?: Hash | string;
+  receiptStatus?: string;
+  executionResult?: string;
+  receiptSummary?: ValidatedReceiptSummary;
+  postWithdrawalCredit?: bigint;
+  accountingInvariantSatisfied?: boolean;
+  error?: string;
+}
+
+export type SweepDisposition =
+  | "COMPLETED"
+  | "NOT_REQUIRED_ZERO_BALANCE"
+  | "BLOCKED_INSUFFICIENT_FEE"
+  | "FAILED";
+
 export interface SweepResultRecord {
-  preSweepBalanceWei: bigint;
-  estimatedFeeWei: bigint;
-  attemptedSweepAmountWei: bigint;
-  sweepTransactionHash: Hash;
-  receiptStatus: string;
-  executionResult: string;
-  postSweepObservedResidualBalanceWei: bigint;
+  disposition: SweepDisposition;
+  preSweepBalanceWei?: bigint;
+  estimatedFeeWei?: bigint;
+  attemptedSweepAmountWei?: bigint;
+  sweepTransactionHash?: Hash | string;
+  receiptStatus?: string;
+  executionResult?: string;
+  receiptSummary?: ValidatedReceiptSummary;
+  postSweepObservedResidualBalanceWei?: bigint;
+  error?: string;
+}
+
+export type PrimaryScenariosStatus = "PRIMARY_SCENARIOS_PASS" | "PRIMARY_SCENARIOS_FAIL";
+export type EconomicCleanupStatus = "ECONOMIC_CLEANUP_PASS" | "ECONOMIC_CLEANUP_PARTIAL" | "ECONOMIC_CLEANUP_FAIL";
+export type LiveReadinessStatus = "LIVE_READINESS_PASS" | "LIVE_READINESS_BLOCKED";
+
+export interface EvaluateCleanupOptions {
+  cleanupRecords: CleanupPartyResult[];
+  expectedTargets: ExpectedCleanupTarget[];
+  expectedPlan: ScenarioTransactionPlan;
+  primaryScenariosStatus?: PrimaryScenariosStatus;
+  sweepRecord?: SweepResultRecord;
 }
 
 export interface EconomicCleanupReport {
-  status: "ECONOMIC_CLEANUP_PASS" | "ECONOMIC_CLEANUP_PARTIAL" | "ECONOMIC_CLEANUP_FAIL";
-  liveReadinessStatus: "LIVE_READINESS_PASS" | "LIVE_READINESS_BLOCKED";
+  primaryScenariosStatus: PrimaryScenariosStatus;
+  status: EconomicCleanupStatus;
+  liveReadinessStatus: LiveReadinessStatus;
   records: CleanupPartyResult[];
+  expectedTargets: ExpectedCleanupTarget[];
   totalChallengerCreditsWithdrawnWei: bigint;
   totalIssuerCreditsWithdrawnWei: bigint;
   totalContractCreditsWithdrawnWei: bigint;
@@ -843,67 +976,165 @@ export interface EconomicCleanupReport {
   unresolvedContractAddresses: Address[];
 }
 
-export interface EvaluateCleanupOptions {
-  cleanupRecords: CleanupPartyResult[];
-  expectedPlan: ScenarioTransactionPlan;
-  sweepRecord?: SweepResultRecord;
-  sweepAttempted: boolean;
-}
-
 /**
- * Pure evaluation function assessing economic cleanup completeness and readiness.
- * Produces separate status indicators and requires exact credit resolution.
+ * Pure evaluation function assessing economic cleanup completeness and combined live readiness.
+ *
+ * Strict manifest rules:
+ * 1. Every expected target in the 13-target manifest must appear exactly once.
+ * 2. No duplicate party/contract records.
+ * 3. No unexpected party/contract records.
+ * 4. Observed credit must equal expected credit.
+ * 5. Actual receipt status must be ACCEPTED or FINALIZED with FINISHED_WITH_RETURN.
+ * 6. Post-withdrawal credit must be strictly zero.
+ * 7. Accounting invariant must be satisfied (true).
+ * 8. All failed target addresses are preserved in unresolvedContractAddresses.
+ * 9. Sweep disposition must be COMPLETED or NOT_REQUIRED_ZERO_BALANCE (when balance is exactly 0).
+ * 10. Live readiness passes ONLY when primaryScenariosStatus is PRIMARY_SCENARIOS_PASS
+ *     AND cleanup status is ECONOMIC_CLEANUP_PASS.
  */
 export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): EconomicCleanupReport {
-  const { cleanupRecords, expectedPlan, sweepRecord, sweepAttempted } = options;
+  const {
+    cleanupRecords,
+    expectedTargets,
+    expectedPlan,
+    primaryScenariosStatus = "PRIMARY_SCENARIOS_PASS",
+    sweepRecord,
+  } = options;
 
   let challengerWithdrawn = 0n;
   let issuerWithdrawn = 0n;
   const unresolvedAddresses: Set<Address> = new Set();
 
+  // Index expected targets by composite key: `${party}:${contractAddress.toLowerCase()}`
+  const targetMap = new Map<string, ExpectedCleanupTarget>();
+  for (const t of expectedTargets) {
+    const key = `${t.party}:${t.contractAddress.toLowerCase()}`;
+    targetMap.set(key, t);
+  }
+
+  // Detect duplicate records and unexpected targets
+  const seenRecordKeys = new Set<string>();
+  let hasDuplicateRecord = false;
+  let hasUnexpectedRecord = false;
+  let hasManifestDiscrepancy = false;
+
   for (const r of cleanupRecords) {
-    if (r.party === "challenger") {
-      challengerWithdrawn += r.observedCredit;
-    } else if (r.party === "issuer") {
-      issuerWithdrawn += r.observedCredit;
-    }
-    if (r.postWithdrawalCredit !== 0n || !r.accountingInvariantSatisfied) {
+    const key = `${r.party}:${r.contractAddress.toLowerCase()}`;
+    if (seenRecordKeys.has(key)) {
+      hasDuplicateRecord = true;
       unresolvedAddresses.add(r.contractAddress);
+    }
+    seenRecordKeys.add(key);
+
+    const target = targetMap.get(key);
+    if (!target) {
+      hasUnexpectedRecord = true;
+      unresolvedAddresses.add(r.contractAddress);
+      continue;
+    }
+
+    if (r.status !== "WITHDRAWN") {
+      unresolvedAddresses.add(r.contractAddress);
+      hasManifestDiscrepancy = true;
+      continue;
+    }
+
+    const obsCredit = r.observedCredit;
+    const creditMatches = obsCredit !== undefined && obsCredit === target.expectedCreditWei;
+    const postWithdrawalZero = r.postWithdrawalCredit === 0n;
+    const invariantTrue = r.accountingInvariantSatisfied === true;
+    const receiptValid =
+      (r.receiptStatus === "FINALIZED" || r.receiptStatus === "ACCEPTED") &&
+      r.executionResult === "FINISHED_WITH_RETURN";
+
+    if (creditMatches && postWithdrawalZero && invariantTrue && receiptValid && obsCredit !== undefined) {
+      if (r.party === "challenger") {
+        challengerWithdrawn += obsCredit;
+      } else if (r.party === "issuer") {
+        issuerWithdrawn += obsCredit;
+      }
+    } else {
+      unresolvedAddresses.add(r.contractAddress);
+      hasManifestDiscrepancy = true;
+    }
+  }
+
+  // Ensure every expected target in the manifest is present
+  for (const t of expectedTargets) {
+    const key = `${t.party}:${t.contractAddress.toLowerCase()}`;
+    if (!seenRecordKeys.has(key)) {
+      hasManifestDiscrepancy = true;
+      unresolvedAddresses.add(t.contractAddress);
     }
   }
 
   const totalContractCreditsWithdrawn = challengerWithdrawn + issuerWithdrawn;
   const expectedTotal = expectedPlan.expectedTotalContractCreditsWei;
-  const unresolvedCredits = expectedTotal > totalContractCreditsWithdrawn ? expectedTotal - totalContractCreditsWithdrawn : 0n;
+  const unresolvedCredits =
+    expectedTotal > totalContractCreditsWithdrawn ? expectedTotal - totalContractCreditsWithdrawn : 0n;
 
-  const allExpectedChallengerRecovered = challengerWithdrawn === expectedPlan.expectedChallengerRecoverableCreditsWei;
-  const allExpectedIssuerRecovered = issuerWithdrawn === expectedPlan.expectedIssuerRecoverableCreditsWei;
-  const postWithdrawalsAllZero = cleanupRecords.every((r) => r.postWithdrawalCredit === 0n && r.accountingInvariantSatisfied);
-  const sweepOk = !sweepAttempted || (sweepRecord !== undefined && sweepRecord.receiptStatus === "FINALIZED" || sweepRecord?.receiptStatus === "ACCEPTED");
+  const allExpectedChallengerRecovered =
+    challengerWithdrawn === expectedPlan.expectedChallengerRecoverableCreditsWei;
+  const allExpectedIssuerRecovered =
+    issuerWithdrawn === expectedPlan.expectedIssuerRecoverableCreditsWei;
 
-  let status: "ECONOMIC_CLEANUP_PASS" | "ECONOMIC_CLEANUP_PARTIAL" | "ECONOMIC_CLEANUP_FAIL";
+  // Strict sweep evaluation with explicit boolean grouping
+  const sweepRequired = expectedPlan.challengerSweepTransactionCount > 0n;
+  let sweepOk = false;
+  if (!sweepRequired) {
+    sweepOk = true;
+  } else {
+    if (sweepRecord === undefined) {
+      sweepOk = false;
+    } else if (sweepRecord.disposition === "NOT_REQUIRED_ZERO_BALANCE") {
+      sweepOk = (sweepRecord.preSweepBalanceWei === 0n) && (sweepRecord.postSweepObservedResidualBalanceWei === 0n);
+    } else if (sweepRecord.disposition === "COMPLETED") {
+      const receiptValid =
+        (sweepRecord.receiptStatus === "FINALIZED" || sweepRecord.receiptStatus === "ACCEPTED") &&
+        (sweepRecord.executionResult === "FINISHED_WITH_RETURN");
+      const postBalQueried = sweepRecord.postSweepObservedResidualBalanceWei !== undefined;
+      sweepOk = receiptValid && postBalQueried;
+    } else {
+      // BLOCKED_INSUFFICIENT_FEE or FAILED
+      sweepOk = false;
+    }
+  }
+
+  const manifestSatisfied =
+    expectedTargets.length > 0 &&
+    !hasDuplicateRecord &&
+    !hasUnexpectedRecord &&
+    !hasManifestDiscrepancy &&
+    seenRecordKeys.size === expectedTargets.length;
+
+  let status: EconomicCleanupStatus;
 
   if (
+    manifestSatisfied &&
     allExpectedChallengerRecovered &&
     allExpectedIssuerRecovered &&
-    postWithdrawalsAllZero &&
     sweepOk &&
     unresolvedAddresses.size === 0 &&
     unresolvedCredits === 0n
   ) {
     status = "ECONOMIC_CLEANUP_PASS";
-  } else if (totalContractCreditsWithdrawn > 0n || cleanupRecords.length > 0) {
+  } else if (totalContractCreditsWithdrawn > 0n || cleanupRecords.some((r) => r.status === "WITHDRAWN")) {
     status = "ECONOMIC_CLEANUP_PARTIAL";
   } else {
     status = "ECONOMIC_CLEANUP_FAIL";
   }
 
-  const liveReadinessStatus = status === "ECONOMIC_CLEANUP_PASS" ? "LIVE_READINESS_PASS" : "LIVE_READINESS_BLOCKED";
+  const liveReadinessStatus: LiveReadinessStatus =
+    (primaryScenariosStatus === "PRIMARY_SCENARIOS_PASS" && status === "ECONOMIC_CLEANUP_PASS")
+      ? "LIVE_READINESS_PASS"
+      : "LIVE_READINESS_BLOCKED";
 
   return {
+    primaryScenariosStatus,
     status,
     liveReadinessStatus,
     records: cleanupRecords,
+    expectedTargets,
     totalChallengerCreditsWithdrawnWei: challengerWithdrawn,
     totalIssuerCreditsWithdrawnWei: issuerWithdrawn,
     totalContractCreditsWithdrawnWei: totalContractCreditsWithdrawn,

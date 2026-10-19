@@ -1,21 +1,19 @@
 /**
- * Shared Autonomous Live-Signer Orchestration Launcher for Python Live Tests.
+ * Python Live-Test Preflight Gate and Offline Utility Module.
  *
- * Implements Phase 1 & Phase 3 & Phase 4 orchestration:
- * - Checks live test opt-in (RESERVECOVENANT_RUN_LIVE_TESTS=1).
- * - Validates strict immutable fixture base URL before signer resolution or network writes.
- * - Resolves issuer account via OS keychain (service: genlayer-cli, account: account:coverlock-submitter).
- * - Generates fresh distinct ephemeral challenger private key in process memory via public SDK API.
- * - Asserts normalized issuer != challenger address.
- * - Calculates required challenger funding dynamically from scenario call specifications.
- * - Verifies issuer Studio Devnet balance against preflight requirements.
- * - Funds the ephemeral challenger only after all preflights pass.
- * - Verifies funding transaction finality and post-balance.
- * - Injects ephemeral keys into Python child process memory only for the lifetime of that child.
- * - Never prints, logs, serializes or commits private keys.
- * - Never writes keys to disk.
- * - Spawns Python live integration suite and propagates exact exit code.
- * - Clears memory references upon completion.
+ * Real Behavior (Option B Fail-Closed Strategy):
+ * - This module enforces strict pre-network gates: opt-in check and immutable fixture validation.
+ * - Under Option B, this launcher NEVER resolves an issuer signer from OS keychain, NEVER generates
+ *   an ephemeral challenger private key, NEVER funds an account, and NEVER launches pytest or submits
+ *   transactions to the network.
+ * - Instead, it halts fail-closed with BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED to prevent allocating
+ *   ephemeral challenger funds without verified economic cleanup.
+ * - The TypeScript live harness (deploy/run_live_integration.ts) serves as the sole authoritative
+ *   live execution path for end-to-end multi-scenario execution and dual-party credit recovery.
+ *
+ * Dormant Offline Support:
+ * - buildPythonLiveEnvironment() is retained as offline-tested dormant support for parameter
+ *   validation and environment building. It is strictly unused while Option B remains active.
  */
 
 import * as path from "node:path";
@@ -70,6 +68,8 @@ export function evaluatePythonLauncherDisposition(
 /**
  * Injects dynamic Studio Devnet fee estimate and scenario parameters into Python child process environment.
  * Validates dynamic fee strictly before environment construction.
+ *
+ * NOTE: Retained as offline-tested dormant support only. Strictly unused while Option B remains active.
  */
 export function buildPythonLiveEnvironment(
   baseEnv: NodeJS.ProcessEnv,
