@@ -294,16 +294,25 @@ npx tsc --noEmit
 ```
 Result: **Zero errors. Strict typechecking clean across all scripts and tooling.**
 
-### 8. Historical Superseded Deployment (Pre-Repair)
+### 8. Canonical Deployment & Historical Record
 
-- **Contract Address**: `0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`
-- **Deployment Transaction Hash**: `0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`
-- **Deployer Public Address**: `0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`
+#### Authoritative Canonical Production Deployment
+- **Canonical Contract Address**: [`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153)
+- **Deployment Transaction Hash**: [`0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62`](https://explorer-studio-dev.genlayer.com/tx/0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62)
+- **Deployer Public Address**: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
+- **Network**: GenLayer Studio Devnet Preview (`studioDevnet`, Chain ID: `61997`, RPC: `https://studio-dev.genlayer.com/api`)
 - **Execution Result**: `FINISHED_WITH_RETURN`
-- **Status**: `FINALIZED`
-- **Deployed At**: `2026-10-18T17:26:47.382Z`
+- **Consensus Receipt Status**: `FINALIZED`
+- **Consensus Outcome**: `MAJORITY_AGREE` (Round 0, 5/5 votes committed/revealed)
+- **Deployed At**: `2026-10-19T10:36:33.969Z`
 - **Receipt Location**: `deploy/deployment_receipt.json`
-- **Assessment**: **SUPERSEDED / NONCANONICAL**. Contains pre-repair code with known logic defects.
+- **GenVM Runner**: `v0.6.0-rc8`
+- **Source SHA-256**: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a`
+
+#### Historical Superseded Deployment (Pre-Repair)
+- **Contract Address**: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913)
+- **Deployment Transaction Hash**: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
+- **Assessment**: **SUPERSEDED / NONCANONICAL — DO NOT USE**. Contains pre-repair code with known logic defects.
 
 ### 9. On-Chain Source Parity Verification
 Command:
@@ -316,40 +325,60 @@ Output:
 [1] Local contract source path: D:\ReserveCovenant\contracts\reservecovenant.py
     Local source SHA-256:       590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a
     Local character count:      60109
-[2] Read contract address from D:\ReserveCovenant\deploy\deployment_receipt.json: 0x8C34faA54238b777cDe7e4373B267b0A6d0E4913
-[3] Target contract address: 0x8C34faA54238b777cDe7e4373B267b0A6d0E4913
+[2] Read contract address from D:\ReserveCovenant\deploy\deployment_receipt.json: 0xc48EB941547506D009FB0a1FAf132F0d561EA153
+[3] Target contract address: 0xc48EB941547506D009FB0a1FAf132F0d561EA153
+    Target network:          GenLayer Studio Devnet (Chain ID: 61997)
+    RPC Endpoint:            https://studio-dev.genlayer.com/api
 [4] Fetching on-chain contract code via gen_getContractCode...
-[5] On-chain source SHA-256:      b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29
-    On-chain character count:     57749
+[5] On-chain source SHA-256:      590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a
+    On-chain character count:     60109
 ----------------------------------------------------------------
->>> VERIFICATION RESULT: FAILED (SOURCE MISMATCH) <<<
-Local SHA-256:    590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a
-On-Chain SHA-256: b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29
+>>> VERIFICATION RESULT: PASS <<<
+Byte-for-byte exact match verified between local file and on-chain contract code.
+Matching SHA-256: 590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a
 ```
-Result: **Identifies on-chain code as historical pre-repair code.** Correctly distinguishes the superseded deployment from the local repaired source.
+Result: **Byte-for-byte exact match verified.** Local source and on-chain contract code are strictly identical.
 
-### 10. Historical Smoke Read (Superseded Contract)
+### 10. Canonical Initial-State Verification (Smoke Read)
 Command:
 ```bash
 npm run smoke:read
 ```
 Output:
 ```
-get_config():
-  asset_id: "usd-reserve-covenant"
-  symbol: "USDR"
-  min_coverage_bps: 10000
-  issuer_bond: 10000000000000000
-  challenger_bond: 5000000000000000
-  treasury_bps: 1000
-  status: "UNINITIALIZED"
-get_accounting():
-  contract_balance: 0
-  invariant_satisfied: true
-  locked_issuer_bonds: 0
-  locked_challenger_bonds: 0
-  total_credits: 0
+=== ReserveCovenant Smoke Read ===
+Contract address: 0xc48EB941547506D009FB0a1FAf132F0d561EA153
+get_config(): {
+  "asset_id": "usd-reserve-covenant",
+  "challenge_window_seconds": 86400,
+  "challenger_bond": 5000000000000000,
+  "eligible_categories": [
+    "bank_deposits",
+    "cash",
+    "us_treasuries"
+  ],
+  "issuer": "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD",
+  "issuer_bond": 10000000000000000,
+  "lifetime_epoch_count": 0,
+  "max_report_age_seconds": 604800,
+  "min_coverage_bps": 10000,
+  "policy_text": "Reserve assets must be held in segregated bank deposits or direct US treasuries, unencumbered by commercial liens or parent liabilities, maintaining at least 100% reserve coverage against circulating tokens at all times.",
+  "resolution_timeout_seconds": 86400,
+  "symbol": "USDR",
+  "treasury": "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD",
+  "treasury_bps": 1000
+}
+get_current_status(): UNINITIALIZED
+get_accounting(): {
+  "contract_balance": 0,
+  "invariant_satisfied": true,
+  "locked_challenger_bonds": 0,
+  "locked_issuer_bonds": 0,
+  "total_credits": 0
+}
+=== Smoke Read Complete: SUCCESS ===
 ```
+Confirmed on-chain: Clean initial state with zero contract balance, zero locked bonds, zero outstanding credits, satisfied accounting invariant, and status `UNINITIALIZED`.
 
 ### 11. Final Readiness, Security & Boundary Status
 
@@ -359,6 +388,12 @@ get_accounting():
   - `deploy/schema.json`: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
 - **Live Harness Implementation**: Complete and offline-tested across 41 checks (15 Python in `tests/harness/test_live_harness_offline.py` + 18 core check groups + 23 native-transfer regression checks in `deploy/test_harness_offline.ts`).
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0). Commit-pinned at `COMMIT_B` (`698b675e5b637f263f841ac148e1718f3c566024`).
+- **Canonical Deployment**:
+  - Address: [`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153)
+  - Deployment Tx: [`0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62`](https://explorer-studio-dev.genlayer.com/tx/0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62)
+  - Deployer: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
+  - Status: `FINALIZED / FINISHED_WITH_RETURN / MAJORITY_AGREE`
+  - On-Chain Parity: **PROVEN** (`npm run verify:onchain`)
 - **Live Validator Scenarios (1–8)**: All eight scenario workflows reached their intended terminal contract states with satisfied accounting invariants. The cited intelligent-contract writes reached `FINALIZED / MAJORITY_AGREE`. The two expected negative-path transactions reached `FINALIZED / FINISHED_WITH_ERROR / MAJORITY_AGREE`. Native transfers reached `FINALIZED / NOT_VOTED` with `value_credited=true`:
   - Scenario 1: [`0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf`](https://explorer-studio-dev.genlayer.com/address/0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf) (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
   - Scenario 2: [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA) (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
@@ -368,7 +403,7 @@ get_accounting():
   - Scenario 6: [`0xd746297196b2c4a18bE1bA45f5541537F018cce0`](https://explorer-studio-dev.genlayer.com/address/0xd746297196b2c4a18bE1bA45f5541537F018cce0) (Final Contract State: `INCONCLUSIVE`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
   - Scenario 7: [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26) (Final Contract State: `INCONCLUSIVE`, consensus: `FINALIZED / MAJORITY_AGREE`, repeated resolve revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`)
   - Scenario 8: [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD) (Final Contract State: `CANCELLED`, consensus: `FINALIZED / MAJORITY_AGREE`, double withdrawal revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`)
-- **Current Authoritative Issuer Balance**: `11,553,465,994,499,443,020 wei` (~`11.55347 GEN`)
+- **Current Authoritative Issuer Balance**: `11,453,465,994,498,407,820 wei` (~`11.45347 GEN`)
 - **Persistent OS Keychain Challenger**:
   - Address: [`0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`](https://explorer-studio-dev.genlayer.com/address/0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9)
   - Keychain service: `genlayer-cli`, account: `account:reservecovenant-challenger`
@@ -387,11 +422,13 @@ get_accounting():
   - Baseline Green CI: [Run 39219903114](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114) (Commit [`48eef4e021c6c1c75a01144f0bec555b084a8b11`](https://github.com/edwarderlick/ReserveCovenant/commit/48eef4e021c6c1c75a01144f0bec555b084a8b11))
   - Code-Bearing Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (Commit [`7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`](https://github.com/edwarderlick/ReserveCovenant/commit/7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901))
   - Prior Evidence-Documentation Green CI: [Run 39233275830](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830) (Commit [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b))
+  - Evidence-Integrity Green CI: [Run 39237397792](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39237397792) (Commit [`ea48c912c221c01a4a03f8d173d5e73ecdea5e41`](https://github.com/edwarderlick/ReserveCovenant/commit/ea48c912c221c01a4a03f8d173d5e73ecdea5e41))
 - **Authoritative Lifecycle Boundary**:
-  - Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending.
-  - Canonical Deployment: NOT PERFORMED
-  - Canonical Deployed-Source Parity: NOT YET PROVEN
-  - GenLayer Portal Submission: NOT PERFORMED
+  - Live validation: COMPLETE
+  - Disposable cleanup: COMPLETE
+  - Canonical deployment: COMPLETE
+  - Canonical deployed-source parity: PROVEN
+  - GenLayer Portal submission: NOT PERFORMED
 - **Historical Transaction Retrieval Notice**: All eight disposable contract addresses and transaction hashes cited in this evidence record were committed from live on-chain executions. While current on-chain state reads confirm that all eight disposable contracts have zero balance, zero credits, zero locked bonds, and satisfied invariants, retrieval of older individual transaction receipts from the public Studio-dev RPC endpoint may be subject to network retention and indexing policies. Committed transaction hashes are preserved without alteration or fabrication.
 
 ---

@@ -336,6 +336,44 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 ## Deployment & Verification Status
 
+### Canonical Deployment — Authoritative Production Instance
+
+| Attribute | Value |
+|---|---|
+| **Contract Name** | `ReserveCovenant` |
+| **Canonical Contract Address** | [`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153) |
+| **Deployment Transaction** | [`0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62`](https://explorer-studio-dev.genlayer.com/tx/0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62) |
+| **Deployer Public Address** | [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD) |
+| **Target Network** | GenLayer Studio Devnet Preview (`studioDevnet`) |
+| **Chain ID** | `61997` |
+| **RPC Endpoint** | `https://studio-dev.genlayer.com/api` |
+| **Consensus Receipt Status** | `FINALIZED` |
+| **Execution Result** | `FINISHED_WITH_RETURN` |
+| **Validator Consensus Outcome** | `MAJORITY_AGREE` (Round 0, 5/5 votes committed/revealed) |
+| **GenVM SDK Runner** | v0.6.0-rc8 |
+| **Local Source SHA-256** | `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` |
+| **On-Chain Source SHA-256** | `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` |
+| **Byte-for-Byte Source Parity** | **PROVEN** (exact match, 60,109 characters via `npm run verify:onchain`) |
+| **Deployment Timestamp** | `2026-10-19T10:36:33.969Z` |
+
+#### Canonical Initial-State Verification (Smoke Read)
+Confirmed on-chain via read-only inspection (`npm run smoke:read`):
+- `get_current_status()`: `UNINITIALIZED`
+- Contract Balance: `0 wei`
+- `get_accounting().locked_issuer_bonds`: `0 wei`
+- `get_accounting().locked_challenger_bonds`: `0 wei`
+- `get_accounting().total_credits`: `0 wei`
+- `get_accounting().invariant_satisfied`: `true`
+- `get_active_epoch().active`: `false` (no active epoch)
+- `get_history_count()`: `0`
+- `get_credit(issuer)`: `0 wei`
+- `get_credit(treasury)`: `0 wei`
+
+#### Contract Role Disambiguation
+- **Canonical Deployment** ([`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153)): Official authoritative production instance deployed with clean initial state and proven byte-for-byte on-chain source parity.
+- **Disposable Validation Contracts** (Scenarios 1–8 below): Disposable test contracts deployed solely to demonstrate scenario execution, terminal state transitions, and 100% economic cleanup.
+- **Historical Superseded Deployment** ([`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913)): Known pre-repair deployment containing older logic defects (**SUPERSEDED / NONCANONICAL — DO NOT USE**).
+
 ### Disposable Live-Validation Contracts — Noncanonical
 
 | Scenario | Purpose | Disposable Contract | Deployment Status | Result |
@@ -349,7 +387,7 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 | Scenario 7 | Repeated Resolution Revert | [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `INCONCLUSIVE`, consensus: `FINALIZED / MAJORITY_AGREE`, repeated resolve revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`) |
 | Scenario 8 | Cancel Epoch & Double Withdrawal Revert | [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `CANCELLED`, consensus: `FINALIZED / MAJORITY_AGREE`, double withdrawal revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`) |
 
-*Labeling: Every disposable contract above is **DISPOSABLE / NONCANONICAL — DO NOT USE**. Zero canonical contracts have been deployed.*
+*Labeling: Every disposable contract above is **DISPOSABLE / NONCANONICAL — DO NOT USE**. The authoritative canonical contract is `0xc48EB941547506D009FB0a1FAf132F0d561EA153`.*
 
 ### Verified Studio-Dev Transactions & Participants
 
@@ -365,7 +403,7 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
   - Challenger 1: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698) (`1,720,000,000,000,173,913 wei`)
   - Challenger 2: [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e) (`1,720,000,000,000,173,913 wei`)
   - Session 3 Ephemeral Residual: [`0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`](https://explorer-studio-dev.genlayer.com/address/0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D) (`127,873,695,000,009,529 wei`)
-- **Historical Deployment**: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
+- **Historical Superseded Deployment**: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
   - Historical Deployment Tx: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
 
 ### Economic Cleanup Disposition & Live Readiness
@@ -374,7 +412,7 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 - **Contract Credits**: `105,000,000,000,000,000 wei` (`0.105 GEN`) withdrawn across 13 operations
 - **Contract Cleanup**: `13/13 TARGETS WITHDRAWN` (all credits from all deployed scenarios recovered; confirmed on-chain via `get_accounting()`)
 - **Persistent Challenger EOA Residual**: `0 wei` (verified on OS keychain account `0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`)
-- **CURRENT_SESSION_LIVE_READINESS**: Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending.
+- **CURRENT_SESSION_LIVE_READINESS**: Canonical deployment and on-chain parity complete; portal submission pending.
 
 *Historical Ephemeral Notice*: Historical test balances from earlier sessions prior to keychain persistence remain stranded due to non-persisted ephemeral keys. The current continuation session utilizes persistent OS keychain storage (`service: genlayer-cli`, `account: reservecovenant-challenger`) and has achieved a strict `0 wei` residual.
 
@@ -392,12 +430,14 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
   - Baseline Green CI: [Run 39219903114](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114) (Commit [`48eef4e021c6c1c75a01144f0bec555b084a8b11`](https://github.com/edwarderlick/ReserveCovenant/commit/48eef4e021c6c1c75a01144f0bec555b084a8b11))
   - Code-Bearing Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (Commit [`7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`](https://github.com/edwarderlick/ReserveCovenant/commit/7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901))
   - Prior Evidence-Documentation Green CI: [Run 39233275830](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830) (Commit [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b))
+  - Evidence-Integrity Green CI: [Run 39237397792](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39237397792) (Commit [`ea48c912c221c01a4a03f8d173d5e73ecdea5e41`](https://github.com/edwarderlick/ReserveCovenant/commit/ea48c912c221c01a4a03f8d173d5e73ecdea5e41))
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
 - **Authoritative Lifecycle Boundary**:
-  - Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending.
-  - Canonical Deployment: NOT PERFORMED
-  - Canonical Deployed-Source Parity: NOT YET PROVEN
-  - GenLayer Portal Submission: NOT PERFORMED
+  - Live validation: COMPLETE
+  - Disposable cleanup: COMPLETE
+  - Canonical deployment: COMPLETE
+  - Canonical deployed-source parity: PROVEN
+  - GenLayer Portal submission: NOT PERFORMED
 
 ---
 

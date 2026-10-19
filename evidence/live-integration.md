@@ -182,7 +182,39 @@ All 13 cleanup targets across all 8 contracts were executed, finalized, and conf
 
 ---
 
-## 5. Live Validation State Summary
+## 5. Canonical Deployment — Authoritative Production Instance
+
+- **Canonical Contract Address**: [`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153)
+- **Deployment Transaction**: [`0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62`](https://explorer-studio-dev.genlayer.com/tx/0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62)
+- **Deployer**: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
+- **Network**: GenLayer Studio Devnet Preview (Chain ID: `61997`, RPC: `https://studio-dev.genlayer.com/api`)
+- **Consensus Receipt Status**: `FINALIZED`
+- **Execution Result**: `FINISHED_WITH_RETURN`
+- **Validator Consensus Outcome**: `MAJORITY_AGREE` (Round 0, 5/5 votes committed/revealed)
+- **GenVM Runner**: `v0.6.0-rc8`
+- **Local Source SHA-256**: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a`
+- **On-Chain Source SHA-256**: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a`
+- **Byte-for-Byte Source Parity**: **PROVEN** (`npm run verify:onchain`, 60,109 characters matched exactly)
+- **Initial Clean State Verified**:
+  - `get_current_status()`: `UNINITIALIZED`
+  - Contract Balance: `0 wei`
+  - `get_accounting().locked_issuer_bonds`: `0 wei`
+  - `get_accounting().locked_challenger_bonds`: `0 wei`
+  - `get_accounting().total_credits`: `0 wei`
+  - `get_accounting().invariant_satisfied`: `true`
+  - `get_active_epoch().active`: `false` (no active epoch)
+  - `get_history_count()`: `0`
+  - `get_credit(issuer)`: `0 wei`
+  - `get_credit(treasury)`: `0 wei`
+
+### Contract Role Disambiguation
+- **Canonical Deployment** ([`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153)): Official authoritative production instance deployed with clean initial state and proven byte-for-byte on-chain source parity.
+- **Disposable Validation Contracts** (Scenarios 1–8): Disposable test contracts deployed solely to demonstrate scenario execution, terminal state transitions, and 100% economic cleanup.
+- **Historical Superseded Deployment** ([`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913)): Known pre-repair deployment containing older logic defects (**SUPERSEDED / NONCANONICAL — DO NOT USE**).
+
+---
+
+## 6. Live Validation & Deployment State Summary
 
 | Metric | Status | Detail |
 |---|---|---|
@@ -191,17 +223,17 @@ All 13 cleanup targets across all 8 contracts were executed, finalized, and conf
 | **Contract Cleanup** | `COMPLETE FOR ALL DEPLOYED` | Zero unresolved credits across all 8 deployed contracts; verified on-chain via `get_accounting()` |
 | **Persistent Challenger EOA Residual** | `0 wei` | Strictly `0 wei` verified on OS keychain account [`0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`](https://explorer-studio-dev.genlayer.com/address/0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9) |
 | **Economic Cleanup** | `ECONOMIC_CLEANUP_COMPLETE` | All 13 targets withdrawn; persistent challenger residual swept cleanly to issuer |
-| **CURRENT_SESSION_LIVE_READINESS** | `READY_DISPOSABLE_CLEAN` | Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending. |
+| **Canonical Deployment** | `COMPLETE` | Canonical contract [`0xc48EB941547506D009FB0a1FAf132F0d561EA153`](https://explorer-studio-dev.genlayer.com/address/0xc48EB941547506D009FB0a1FAf132F0d561EA153) deployed via tx [`0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62`](https://explorer-studio-dev.genlayer.com/tx/0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62) |
+| **Canonical Deployed-Source Parity** | `PROVEN` | Exact byte-for-byte parity verified via `npm run verify:onchain` (SHA-256: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a`) |
+| **GenLayer Portal Submission** | `NOT PERFORMED` | No portal interaction |
+| **Authoritative Lifecycle Boundary** | `CANONICAL_DEPLOYED_PARITY_PROVEN` | Live validation: COMPLETE; Disposable cleanup: COMPLETE; Canonical deployment: COMPLETE; Canonical deployed-source parity: PROVEN; Portal submission: NOT PERFORMED |
 | **Historical Stranded 1** | `1.720000000000173913 GEN` | Address [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698) |
 | **Historical Stranded 2** | `1.720000000000173913 GEN` | Address [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e) |
 | **Historical Session 3 Stranded** | `127,873,695,000,009,529 wei` | Address [`0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`](https://explorer-studio-dev.genlayer.com/address/0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D) |
 | **Historical Superseded Contract** | [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) | **SUPERSEDED / NONCANONICAL — DO NOT USE** |
-| **Canonical Deployment** | `NOT PERFORMED` | Canonical deployment remains gated |
-| **Canonical Deployed-Source Parity** | `NOT YET PROVEN` | Requires canonical deployment before parity can be certified |
-| **GenLayer Portal Submission** | `NOT PERFORMED` | No portal interaction |
 
 ---
 
-## 6. Historical Transaction Retrieval Notice
+## 7. Historical Transaction Retrieval Notice
 
 All eight disposable contract addresses and transaction hashes cited in this evidence record were committed from live on-chain executions. While current on-chain state reads confirm that all eight disposable contracts have zero balance, zero credits, zero locked bonds, and satisfied invariants, retrieval of older individual transaction receipts from the public Studio-dev RPC endpoint may be subject to network retention and indexing policies. Committed transaction hashes are preserved without alteration or fabrication.

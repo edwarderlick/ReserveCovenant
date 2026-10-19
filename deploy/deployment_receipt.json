@@ -3,10 +3,10 @@
   "chainId": 61997,
   "rpcUrl": "https://studio-dev.genlayer.com/api",
   "contractName": "ReserveCovenant",
-  "contractAddress": "0x8C34faA54238b777cDe7e4373B267b0A6d0E4913",
-  "sourceSha256": "b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29",
+  "contractAddress": "0xc48EB941547506D009FB0a1FAf132F0d561EA153",
+  "sourceSha256": "590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a",
   "deployerAddress": "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD",
-  "transactionHash": "0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a",
+  "transactionHash": "0xdff3b4f507f1f6dc183e46f0aeb771cc4c4ddbb43cf80f616243255176385e62",
   "status": "FINALIZED",
-  "deployedAt": "2026-10-18T17:26:55.641Z"
+  "deployedAt": "2026-10-19T10:36:33.969Z"
 }
