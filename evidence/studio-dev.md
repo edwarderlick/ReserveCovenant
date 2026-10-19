@@ -237,24 +237,33 @@ Result: **OFFLINE_HARNESS_VALIDATION_PASS** (33 tests passed: 15 Python in `test
      - Disabled fail-closed under Option B with `BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED` to prevent allocating and abandoning ephemeral funds without receipt-verified cleanup.
      - The TypeScript live harness (`deploy/run_live_integration.ts`) is the sole authoritative live execution path.
 
-### 5. Public Fixtures Check & Prepublication Mode
+### 5. Public Fixtures Check & Two-Commit Publication Flow
 Commands:
 ```bash
 npm run fixtures:check
 npm run fixtures:prepublish
 ```
-- `npm run fixtures:check` (Strict Publication Mode): Exits nonzero (code 1) prior to repository publication because fixture URLs contain prepublication placeholder branch references. Correctly reports `BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION`.
-- `npm run fixtures:prepublish` (Pre-Publication Inspection Mode): Exits code 0 because internal evidence file hashes match snapshots, placeholder state is explicitly detected, and the blocked status is internally consistent.
+- `npm run fixtures:check` (Strict Publication Mode): Exits **0** with status `PUBLICATION_READY`. All fixture URLs are strictly commit-pinned and evidence hashes match.
+- `npm run fixtures:prepublish` (Pre-Publication Inspection Mode): Exits **0**. Evidence hashes match snapshots.
 
-**Two-Commit Publication Procedure**:
-1. **Stage A (Evidence Commit)**:
-   - Publish local evidence files (`issuer-upheld-evidence.json`, `issuer-material-disclaimer.json`, `challenger-unsupported-claim.json`, `challenger-material-disclaimer.json`) to GitHub repository.
-   - Capture Evidence Commit SHA A.
-2. **Stage B (Snapshot Commit)**:
-   - Run `deploy/prepare_public_fixtures.ts --owner <owner> --repo <repo> --commit-a <COMMIT_A> --write`.
-   - Script validates `COMMIT_A` (40 lowercase hex chars), verifies evidence file SHA-256 matches, pins nested URLs to `COMMIT_A`, and canonically formats JSON.
-   - Commit updated snapshot fixtures to GitHub and capture Snapshot Commit SHA B.
-   - Set `RESERVECOVENANT_FIXTURE_BASE_URL=https://raw.githubusercontent.com/<owner>/<repo>/<COMMIT_B>/fixtures`.
+**Executed Two-Commit Publication Verification**:
+- **Repository URL**: `https://github.com/edwarderlick/ReserveCovenant`
+- **Stage A — Evidence Commit (`COMMIT_A`)**: `7060b5e631fb5e2581fc51f7d23bf331ee79184c`
+  - `fixtures/issuer-upheld-evidence.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/issuer-upheld-evidence.json` (SHA-256: `3b296309d8fbf91aaccda1eac13e1cb6d3ad3f33348d2606d63c3de9e78b8675`) — Verified HTTP 200, byte-identical.
+  - `fixtures/issuer-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/issuer-material-disclaimer.json` (SHA-256: `b6ae59a747a1e7785c7ba5d16657b2ecb2d51edb8f6544051c6589826161dc25`) — Verified HTTP 200, byte-identical.
+  - `fixtures/challenger-unsupported-claim.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/challenger-unsupported-claim.json` (SHA-256: `8c32858b6919b4466502d3d3e120643aca030e9b8c8e5c21e5734304b887b71f`) — Verified HTTP 200, byte-identical.
+  - `fixtures/challenger-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/challenger-material-disclaimer.json` (SHA-256: `84ddeead88550e8c111e623200ffd2525fc73b2218372ef47a1c0fa6840d9e87`) — Verified HTTP 200, byte-identical.
+- **Stage B — Snapshot Publication Commit (`COMMIT_B`)**: `698b675e5b637f263f841ac148e1718f3c566024`
+  - `fixtures/epoch-compliant.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-compliant.json` (SHA-256: `07294204790ff0921a9c7cb2d4f6fc9344e31238be20a4f3b042dfbd3420986f`)
+  - `fixtures/epoch-coverage-shortfall.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-coverage-shortfall.json` (SHA-256: `52cdd2c3e62c7659844d0dfccc8c3f76f415224fa4069f6192918d2cf93a579a`)
+  - `fixtures/epoch-future-dated.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-future-dated.json` (SHA-256: `3826b32fe95cdc8d2df81436bd96c64fa573b44c0f0f85c30042c3cdef2dd54a`)
+  - `fixtures/epoch-ineligible-reserve.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-ineligible-reserve.json` (SHA-256: `77bf69c4cacc091d421ec270248e7e7dbe0b47254227ce2757c18faf79ee1c95`)
+  - `fixtures/epoch-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-material-disclaimer.json` (SHA-256: `8695610270fe368398c83ab418752fd4241bf51eb28d073aceee7c9423e03f3b`)
+- **Code-Bearing Commit**: `0d6888d89d77d97adceb43f05e752459e2bf1795` (enforced platform CRLF for schema, verified published fixtures in CI, handled publication readiness in offline harness)
+- **Public GitHub Actions CI Run**: [Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714) (**PASSED / SUCCESS** across all 21 verification steps)
+- **Status**: **PUBLICATION_READY**
+- **Zero Live Writes / Canonical Deployments**: Zero live validator-consensus runs, zero canonical redeployments executed. Older Studio Devnet deployment (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`) remains superseded/noncanonical.
+- **Next Gated Action**: Authoritative TypeScript live integration execution (`deploy/run_live_integration.ts`) gated by explicit opt-in (`RESERVECOVENANT_RUN_LIVE_TESTS=1`).
 
 ### 6. Integration Test Opt-In Guard Verification
 Commands:

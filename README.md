@@ -334,21 +334,36 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 ## Live-Harness Readiness & Publication Status
 
+- **Repository URL**: `https://github.com/edwarderlick/ReserveCovenant`
 - **Contract Repair Status**: Contract repair is verified offline with 82 passing direct tests.
 - **Immutable Hashes**:
   - Contract (`contracts/reservecovenant.py`): `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
   - Schema (`deploy/schema.json`): `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
+- **Two-Commit Fixture Publication Flow**:
+  - **Stage-A Evidence Commit (`COMMIT_A`)**: `7060b5e631fb5e2581fc51f7d23bf331ee79184c`
+    - `fixtures/issuer-upheld-evidence.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/issuer-upheld-evidence.json` (SHA-256: `3b296309d8fbf91aaccda1eac13e1cb6d3ad3f33348d2606d63c3de9e78b8675`)
+    - `fixtures/issuer-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/issuer-material-disclaimer.json` (SHA-256: `b6ae59a747a1e7785c7ba5d16657b2ecb2d51edb8f6544051c6589826161dc25`)
+    - `fixtures/challenger-unsupported-claim.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/challenger-unsupported-claim.json` (SHA-256: `8c32858b6919b4466502d3d3e120643aca030e9b8c8e5c21e5734304b887b71f`)
+    - `fixtures/challenger-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/challenger-material-disclaimer.json` (SHA-256: `84ddeead88550e8c111e623200ffd2525fc73b2218372ef47a1c0fa6840d9e87`)
+  - **Stage-B Snapshot Publication Commit (`COMMIT_B`)**: `698b675e5b637f263f841ac148e1718f3c566024`
+    - `fixtures/epoch-compliant.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-compliant.json` (SHA-256: `07294204790ff0921a9c7cb2d4f6fc9344e31238be20a4f3b042dfbd3420986f`)
+    - `fixtures/epoch-coverage-shortfall.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-coverage-shortfall.json` (SHA-256: `52cdd2c3e62c7659844d0dfccc8c3f76f415224fa4069f6192918d2cf93a579a`)
+    - `fixtures/epoch-future-dated.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-future-dated.json` (SHA-256: `3826b32fe95cdc8d2df81436bd96c64fa573b44c0f0f85c30042c3cdef2dd54a`)
+    - `fixtures/epoch-ineligible-reserve.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-ineligible-reserve.json` (SHA-256: `77bf69c4cacc091d421ec270248e7e7dbe0b47254227ce2757c18faf79ee1c95`)
+    - `fixtures/epoch-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-material-disclaimer.json` (SHA-256: `8695610270fe368398c83ab418752fd4241bf51eb28d073aceee7c9423e03f3b`)
+  - **Code-Bearing Commit**: `0d6888d89d77d97adceb43f05e752459e2bf1795` (platform CRLF schema enforcement, published fixture verification in CI, offline harness publication readiness)
+  - **Public GitHub Actions CI Run**: [Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714) (**PASSED / SUCCESS** across all 21 verification steps)
+- **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
 - **Live Harness Implementation**: Complete and offline-tested across 33 tests (15 Python + 18 TypeScript checks).
-- **Public Fixtures Status**: Fixtures are not public; placeholder branch references remain pending remote publication.
 - **Live Validator Scenarios**: Real live validator scenarios have NOT run in this pass.
 - **Validator Consensus**: Validator consensus has NOT been demonstrated on Studio Devnet.
 - **Canonical Redeployment**: Canonical redeployment has NOT occurred.
-- **Current Status**: **BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION**
 - **Historical Deployment**: **SUPERSEDED / NONCANONICAL** (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`)
-- **GitHub Actions Status**: **PREPARED — NOT PUBLICLY EXECUTED**
+- **GitHub Actions Status**: **GREEN / VERIFIED** ([Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714))
 - **Portal Submission**: No portal submission has occurred.
 - **Network Writes & Deployments**: Exactly **zero** network writes and **zero** deployments executed.
 - **Authoritative Statement**: **No live validator-consensus result is claimed.**
+- **Next Gated Action**: Authoritative TypeScript live integration execution (`deploy/run_live_integration.ts`) gated by explicit opt-in (`RESERVECOVENANT_RUN_LIVE_TESTS=1`).
 
 ---
 
