@@ -338,51 +338,52 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 ### Disposable Live-Validation Contracts — Noncanonical
 
-| Scenario | Purpose | Disposable Contract | Deployment Transaction | Result |
+| Scenario | Purpose | Disposable Contract | Deployment Status | Result |
 |---|---|---|---|---|
-| Scenario 1 | Compliant Disclosure | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
-| Scenario 2 | Coverage Shortfall Breach | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
-| Scenario 3 | Future-Dated Disclosure | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
-| Scenario 4 | Ineligible Reserve Breach | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
-| Scenario 5 | Unsupported Claim Upheld | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
-| Scenario 6 | Material Disclaimer Breach | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 1 | Coverage Shortfall Breach | [`0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf`](https://explorer-studio-dev.genlayer.com/address/0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
+| Scenario 2 | Ineligible Reserve Breach | [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
+| Scenario 3 | Future-Dated Disclosure | [`0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0`](https://explorer-studio-dev.genlayer.com/address/0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
+| Scenario 4 | Material Disclaimer Breach | [`0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4`](https://explorer-studio-dev.genlayer.com/address/0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
+| Scenario 5 | Unsupported Claim Upheld | [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee) | DEPLOYED (Noncanonical) | **HALTED** (`publish_epoch` RPC fetch failed) |
+| Scenario 6 | Compliant Disclosure | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
 | Scenario 7 | Repeated Resolution Revert | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
 | Scenario 8 | Zero Credit Revert | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
 
-*Note: Zero disposable scenario contracts were deployed. During the newly authorized live validation run, execution halted during challenger funding receipt verification prior to Scenario 1 deployment. Per Rule 13 ("Do not automatically retry a live run after its first submitted transaction"), execution stopped immediately. No disposable contract is canonical.*
+*Labeling: Every disposable contract above is **DISPOSABLE / NONCANONICAL — DO NOT USE**. Zero canonical contracts have been deployed.*
 
 ### Verified Studio-Dev Transactions & Participants
 
 - **Issuer Public Address**: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
 - **Faucet Top-Up Transaction**: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d) (`10.000 GEN`)
-- **Current Authoritative Issuer Balance**: `11,701,261,087,749,496,816 wei` (~`11.70126 GEN`)
+- **Current Authoritative Issuer Balance**: `11,560,957,319,999,465,654 wei` (~`11.56096 GEN`)
 - **Native-Transfer Canary Challenger**: [`0x298ECE720dFE465ED9F77dDe88505F7F73016774`](https://explorer-studio-dev.genlayer.com/address/0x298ECE720dFE465ED9F77dDe88505F7F73016774)
   - Canary Funding Tx: [`0x9a790c2cdbe68a3339c447b3b93b1076e3eae3cdbb4f73a4aea23132f756132d`](https://explorer-studio-dev.genlayer.com/tx/0x9a790c2cdbe68a3339c447b3b93b1076e3eae3cdbb4f73a4aea23132f756132d) (`0.01 GEN`, `status: FINALIZED`, `NOT_VOTED`, `value_credited: true`)
   - Canary Residual Sweep Tx: [`0xfbfdb01b98fadb2226ba9f8e9e0221a9a43db47f34251919ece0ed507984a16f`](https://explorer-studio-dev.genlayer.com/tx/0xfbfdb01b98fadb2226ba9f8e9e0221a9a43db47f34251919ece0ed507984a16f) (`0.01 GEN`, `status: FINALIZED`, `NOT_VOTED`, `value_credited: true`)
   - Canary Final Residual: `0 wei` (**NATIVE_TRANSFER_CANARY_PASS**)
-- **Full-Run Challenger 2**: [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e)
-  - Full-Run Funding Tx: [`0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769`](https://explorer-studio-dev.genlayer.com/tx/0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769)
+- **Live Run Challenger 3**: [`0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`](https://explorer-studio-dev.genlayer.com/address/0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D)
+  - Full-Run Funding Tx: [`0xa5c6327319e52114ad62b668a45746582d47ab3fea63bd2af188017611067f9e`](https://explorer-studio-dev.genlayer.com/tx/0xa5c6327319e52114ad62b668a45746582d47ab3fea63bd2af188017611067f9e)
   - Exact Funding Value: `1,720,000,000,000,173,913 wei` (`1.720000000000173913 GEN`)
-  - Status: `FINALIZED`, `NOT_VOTED`, `value_credited: true`
-  - Balance Delta: `1,720,000,000,000,173,913 wei`
-  - Scenario Transactions: 0 submitted (halted before Scenario 1)
-  - Cleanup Withdrawals: 0 created / 0 needed
-  - Final Challenger Sweep: Could not be executed due to process exit after receipt assertion failure
-  - Current Challenger 2 Balance: `1,720,000,000,000,173,913 wei` (**STRANDED STUDIO-DEV TEST BALANCE**)
-- **Historical Ephemeral Challenger 1 (Incident 1)**: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698)
-  - Historical Funding Tx: [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21)
-  - Exact Balance: `1,720,000,000,000,173,913 wei` (**STRANDED STUDIO-DEV TEST BALANCE — OLD EPHEMERAL KEY UNAVAILABLE**)
+  - Consensus Status: `FINALIZED`, Result: `NOT_VOTED`, Value Credited: `true`
+  - Balance Delta: `1,720,000,000,000,173,913 wei` (exact match)
+  - Scenario 5 Publish Epoch Tx: [`0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97`](https://explorer-studio-dev.genlayer.com/tx/0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97)
+  - Emergency Contract Withdrawals: 8 completed (4 challenger = `0.056 GEN`, 4 issuer = `0.004 GEN`)
+  - Native Sweep Tx: [`0x3f6ca77c7c89e145128ef83b417976839cfd4aeec916d1c27f06ec6944dcc8db`](https://explorer-studio-dev.genlayer.com/tx/0x3f6ca77c7c89e145128ef83b417976839cfd4aeec916d1c27f06ec6944dcc8db) (`FINALIZED`, `NOT_VOTED`)
+  - Pre-Sweep Balance: `1,627,306,548,250,157,800 wei`
+  - Final Observed Residual: `127,873,695,000,009,529 wei` (~`0.12787 GEN`)
+- **Historical Stranded Balances**:
+  - Challenger 1: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698) (`1,720,000,000,000,173,913 wei`, tx [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21))
+  - Challenger 2: [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e) (`1,720,000,000,000,173,913 wei`, tx [`0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769`](https://explorer-studio-dev.genlayer.com/tx/0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769))
 - **Historical Deployment**: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
   - Historical Deployment Tx: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
 
 ### Economic Cleanup Disposition & Live Readiness
 
-- **Contract Credits**: `NONE CREATED`
-- **Contract Cleanup**: `NOT REQUIRED`
-- **Ephemeral EOA Cleanup**: `FAILED / IMPOSSIBLE AFTER KEY LOSS`
-- **Stranded Studio-dev Test Balance (Challenger 1)**: `1.720000000000173913 GEN` ([`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698))
-- **Stranded Studio-dev Test Balance (Challenger 2)**: `1.720000000000173913 GEN` ([`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e))
-- **LIVE_READINESS**: `BLOCKED`
+- **Primary Scenarios**: `PRIMARY_SCENARIOS_FAIL` (4 passed, halted at Scenario 5 on RPC fetch error)
+- **Contract Credits**: `60,000,000,000,000,000 wei` withdrawn across 8 operations (4 challenger, 4 issuer)
+- **Contract Cleanup**: `8/13 TARGETS WITHDRAWN` (all credits from deployed scenarios recovered)
+- **Challenger EOA Sweep**: Swept via tx `0x3f6ca77c7c89e145128ef83b417976839cfd4aeec916d1c27f06ec6944dcc8db`
+- **Residual Dust**: `127,873,695,000,009,529 wei` on challenger `0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`
+- **CURRENT_SESSION_LIVE_READINESS**: `BLOCKED` (positive residual, primary suite halted)
 
 *Non-Recoverability Notice*: Neither ephemeral test balance can be recovered without the respective ephemeral private key. In accordance with safety rules, keys held in memory are released upon process exit and must never be guessed, fabricated, or reconstructed. These sessions are not economically clean, and live readiness remains blocked until all criteria can be satisfied.
 
