@@ -618,8 +618,7 @@ export function isTerminalReceipt(receipt: unknown): boolean {
         normalizedStatus === "ACCEPTED" ||
         normalizedStatus === "CANCELED" ||
         normalizedStatus === "VALIDATORS_TIMEOUT" ||
-        normalizedStatus === "LEADER_TIMEOUT" ||
-        normalizedStatus === "UNDETERMINED"
+        normalizedStatus === "LEADER_TIMEOUT"
       ) {
         return true;
       }
@@ -630,6 +629,7 @@ export function isTerminalReceipt(receipt: unknown): boolean {
         normalizedStatus === "REVEALING" ||
         normalizedStatus === "PENDING" ||
         normalizedStatus === "UNINITIALIZED" ||
+        normalizedStatus === "UNDETERMINED" ||
         normalizedStatus === "APPEAL_COMMITTING" ||
         normalizedStatus === "APPEAL_REVEALING"
       ) {

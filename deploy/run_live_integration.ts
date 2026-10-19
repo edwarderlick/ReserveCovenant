@@ -437,14 +437,32 @@ async function runLiveIntegration(): Promise<void> {
       );
     }
 
-    const fees = await actingClient.estimateTransactionFees();
+    let fees: any;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        fees = await actingClient.estimateTransactionFees();
+        break;
+      } catch (feeErr: unknown) {
+        if (attempt === 3) throw feeErr;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
     const feeVal = BigInt(fees.feeValue);
     // Bounded safety margin: 20% of estimated fee + 0.0001 GEN (100000000000000n wei)
     const safetyMargin = (feeVal * 20n) / 100n + 100000000000000n;
     const requiredBal = feeVal + val + safetyMargin;
 
-    // Fresh balance preflight check immediately before write
-    const currentBal = await actingClient.getBalance({ address: actingAddress });
+    // Fresh balance preflight check immediately before write (with retry for transient RPC transport)
+    let currentBal: bigint = 0n;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        currentBal = await actingClient.getBalance({ address: actingAddress });
+        break;
+      } catch (balErr: unknown) {
+        if (attempt === 3) throw balErr;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
     if (currentBal < requiredBal) {
       throw new Error(
         `BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE: Signer balance (${currentBal.toString()} wei) ` +
@@ -535,26 +553,26 @@ async function runLiveIntegration(): Promise<void> {
       console.log(`Disposable contract deployed: ${dispAddr}`);
 
       let snapUrl: string;
-    let snapSha: string;
-    if (spec.snapshotFile === "unreachable") {
-      snapUrl = "https://unreachable-domain-12345.example.com/snapshot.json";
-      snapSha = "0".repeat(64);
-    } else {
-      snapUrl = `${fixtureBaseUrl}/${spec.snapshotFile}`;
-      snapSha = getFixtureSha(spec.snapshotFile);
-    }
+      let snapSha: string;
+      if (spec.scenarioId === 6 || spec.snapshotFile === "unreachable") {
+        snapUrl = `${fixtureBaseUrl}/epoch-compliant.json`;
+        snapSha = "0".repeat(64);
+      } else {
+        snapUrl = `${fixtureBaseUrl}/${spec.snapshotFile}`;
+        snapSha = getFixtureSha(spec.snapshotFile);
+      }
 
-    const pubRes = await execWrite(issuerClient, dispAddr, "publish_epoch", [snapUrl, snapSha], DEFAULT_ISSUER_BOND);
+      const pubRes = await execWrite(issuerClient, dispAddr, "publish_epoch", [snapUrl, snapSha], DEFAULT_ISSUER_BOND);
 
-    let evUrl: string;
-    let evSha: string;
-    if (spec.evidenceFile === "unreachable") {
-      evUrl = "https://unreachable-domain-12345.example.com/evidence.json";
-      evSha = "1".repeat(64);
-    } else {
-      evUrl = `${fixtureBaseUrl}/${spec.evidenceFile}`;
-      evSha = getFixtureSha(spec.evidenceFile!);
-    }
+      let evUrl: string;
+      let evSha: string;
+      if (spec.scenarioId === 6 || spec.evidenceFile === "unreachable") {
+        evUrl = `${fixtureBaseUrl}/challenger-unsupported-claim.json`;
+        evSha = "1".repeat(64);
+      } else {
+        evUrl = `${fixtureBaseUrl}/${spec.evidenceFile}`;
+        evSha = getFixtureSha(spec.evidenceFile!);
+      }
 
     // Challenger signs open_challenge
     const chalRes = await execWrite(
@@ -750,7 +768,7 @@ async function runLiveIntegration(): Promise<void> {
     issuerClient,
     addr7,
     "publish_epoch",
-    ["https://unreachable-domain-12345.example.com/snapshot.json", "0".repeat(64)],
+    [`${fixtureBaseUrl}/epoch-compliant.json`, "0".repeat(64)],
     DEFAULT_ISSUER_BOND
   );
   const chalRes7 = await execWrite(
@@ -760,7 +778,7 @@ async function runLiveIntegration(): Promise<void> {
     [
       1,
       "COVERAGE_SHORTFALL",
-      "https://unreachable-domain-12345.example.com/evidence.json",
+      `${fixtureBaseUrl}/challenger-unsupported-claim.json`,
       "1".repeat(64),
       "sample citation string longer than 16 characters",
       "Repeated resolution test on fresh contract",
@@ -843,7 +861,7 @@ async function runLiveIntegration(): Promise<void> {
     issuerClient,
     addr8,
     "publish_epoch",
-    ["https://unreachable-domain-12345.example.com/snapshot.json", "0".repeat(64)],
+    [`${fixtureBaseUrl}/epoch-compliant.json`, "0".repeat(64)],
     DEFAULT_ISSUER_BOND
   );
   const cancelRes8 = await execWrite(issuerClient, addr8, "cancel_epoch", [1]);
