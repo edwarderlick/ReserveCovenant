@@ -289,10 +289,10 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 - **Chain ID**: `61997`
 - **RPC Endpoint**: `https://studio-dev.genlayer.com/api`
 - **Runner**: `py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng`
-- **Contract Address**: `0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`
-- **Deployment Transaction**: `0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`
+- **Historical Contract**: [View superseded contract on Studio-dev Explorer](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913)
+- **Historical Deployment Transaction**: [View superseded deployment transaction](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
 - **Historical Source SHA-256**: `b2ccef050d5b4ecd1088aba848bbf611187cf49738508240095a4aaef34bcf29`
-- **Status**: **SUPERSEDED / NONCANONICAL**
+- **Status**: **SUPERSEDED / NONCANONICAL — DO NOT USE**
   - This deployment contains pre-repair source code with known defects (unreachable ineligible reserve breach path, future-dated report non-breach under `STALE_REPORT`, loose semantic outcome mapping, pre-lowered hash validation).
   - This historical contract must not be mutated or used as canonical.
 
@@ -307,13 +307,15 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 ### Canonical Deployment Gate
 
-- **Status**: `BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION`
-- **Rationale**: GenLayer validators require public, immutable HTTPS endpoints for evidence fetching during consensus. Under the local repository boundary (no remote configured, no push permitted), fixtures cannot yet be published to an immutable commit-pinned URL.
-- **Fixture URL Policy**: Placeholder URLs (e.g., `/main/`) are strictly rejected by the validator harness. Live testing requires the Two-Commit publication flow:
-  1. Stage A: Publish evidence documents and capture Commit SHA A.
-  2. Stage B: Pin snapshot nested evidence URLs to Commit SHA A (`deploy/prepare_public_fixtures.ts`), commit snapshots, and capture Commit SHA B.
-  3. Live harness runs against Commit SHA B.
-- **Action**: In accordance with the deployment gate rules, execution stopped prior to live disposable scenario execution and canonical redeployment. No new canonical contract has been deployed.
+- **Status**: **PUBLICATION_READY — CANONICAL DEPLOYMENT GATED**
+- **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0). All Stage-A evidence documents and Stage-B snapshots are published and commit-pinned.
+- **Live Integration & Funding Gate**:
+  - Official faucet funding succeeded: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d)
+  - Ephemeral challenger funding succeeded: [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21)
+  - Live harness halted during funding receipt verification (`NOT_VOTED` on native transfer between EOAs; see [evidence/live-integration.md](evidence/live-integration.md)).
+  - Zero disposable scenario contracts were deployed.
+  - Zero contract credits allocated.
+- **Action**: In accordance with the deployment gate rules, execution stopped prior to live disposable scenario execution and canonical redeployment. No canonical contract has been deployed.
 
 ---
 
@@ -328,7 +330,7 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 | Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 18 checks | **PASSED** | Pure offline harness validation: authoritative SDK status mappings, actual receipt evidence, exact 13-target manifest matching, discriminated failure tracking, explicit sweep dispositions, and combined readiness semantics (`OFFLINE_HARNESS_VALIDATION_PASS`) |
 | Live Integration Launcher (Python) | `deploy/run_python_live_integration.ts` | Orchestration | **DISABLED (Option B)** | Fail-closed guard (`BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED`); TypeScript harness is authoritative to protect ephemeral funds |
 | Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (gated by fixture publication) |
-| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated with dual-party cleanup and measurable sweep; not live-executed (0 transactions submitted) |
+| Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **HALTED AT FUNDING** | Preflight passed, challenger funded via on-chain transfer; halted on receipt assertion before scenario deployment |
 
 ---
 
@@ -355,15 +357,13 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
   - **Public GitHub Actions CI Run**: [Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714) (**PASSED / SUCCESS** across all 21 verification steps)
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
 - **Live Harness Implementation**: Complete and offline-tested across 33 tests (15 Python + 18 TypeScript checks).
-- **Live Validator Scenarios**: Real live validator scenarios have NOT run in this pass.
-- **Validator Consensus**: Validator consensus has NOT been demonstrated on Studio Devnet.
+- **Live Validator Scenarios**: Real live validator scenarios have NOT run to completion; halted during funding receipt verification before scenario contract deployment.
+- **Validator Consensus**: Validator consensus on scenario contracts has NOT been demonstrated on Studio Devnet.
 - **Canonical Redeployment**: Canonical redeployment has NOT occurred.
-- **Historical Deployment**: **SUPERSEDED / NONCANONICAL** (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`)
-- **GitHub Actions Status**: **GREEN / VERIFIED** ([Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714))
+- **Historical Deployment**: **SUPERSEDED / NONCANONICAL — DO NOT USE** ([0x8C34faA54238b777cDe7e4373B267b0A6d0E4913](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913))
+- **Live Integration Evidence**: Documented in [evidence/live-integration.md](evidence/live-integration.md) with verified explorer links.
 - **Portal Submission**: No portal submission has occurred.
-- **Network Writes & Deployments**: Exactly **zero** network writes and **zero** deployments executed.
 - **Authoritative Statement**: **No live validator-consensus result is claimed.**
-- **Next Gated Action**: Authoritative TypeScript live integration execution (`deploy/run_live_integration.ts`) gated by explicit opt-in (`RESERVECOVENANT_RUN_LIVE_TESTS=1`).
 
 ---
 

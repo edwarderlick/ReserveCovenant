@@ -356,15 +356,15 @@ get_accounting():
   - `contracts/reservecovenant.py`: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
   - `deploy/schema.json`: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
 - **Live Harness Implementation**: Complete and offline-tested across 33 tests (15 Python + 18 TypeScript checks).
-- **Public Fixtures Status**: Fixtures are not public; placeholders remain pending remote publication.
-- **Live Scenarios**: Real live validator scenarios have NOT run in this pass.
-- **Validator Consensus**: Validator consensus has NOT been demonstrated on Studio Devnet.
+- **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0). Commit-pinned at `COMMIT_B` (`698b675e5b637f263f841ac148e1718f3c566024`).
+- **Live Validator Scenarios**: Real live validator scenarios have NOT run to completion; halted during funding receipt verification before scenario contract deployment.
+- **Validator Consensus**: Validator consensus on scenario contracts has NOT been demonstrated on Studio Devnet.
 - **Canonical Redeployment**: Canonical redeployment has NOT occurred.
-- **Current Status**: **BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION**
-- **Historical Deployment**: **SUPERSEDED / NONCANONICAL** (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`)
-- **GitHub Actions Status**: **PREPARED — NOT PUBLICLY EXECUTED**
+- **Historical Deployment**: **SUPERSEDED / NONCANONICAL — DO NOT USE** ([0x8C34faA54238b777cDe7e4373B267b0A6d0E4913](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913))
+- **Historical Deployment Tx**: [0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
+- **Live Integration Evidence**: Documented in [`evidence/live-integration.md`](live-integration.md) with verified explorer links.
+- **GitHub Actions Status**: **GREEN / VERIFIED** ([Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714), [Run 39204332018](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39204332018))
 - **Portal Submission**: No portal submission has occurred.
-- **Network Writes & Deployments**: Exactly **zero** network writes and **zero** deployments executed.
 - **Authoritative Statement**: **No live validator-consensus result is claimed.**
 
 ---
@@ -374,7 +374,7 @@ get_accounting():
 1. **Strict Product Boundary**: ReserveCovenant determines solely whether hash-pinned reserve evidence conforms to a frozen disclosure policy. It makes no claims and provides no certification that the issuer is solvent, reserves physically exist, assets are safe, a token is fully backed, or that it replaces an audit or legal advice.
 2. **Evidence Accessibility**: Semantic evaluation relies on publicly accessible HTTPS endpoints for fetching disclosure documents during resolution. If an evidence URL goes down, fails SSL handshake, or hash check fails, consensus logic fails closed to `INCONCLUSIVE` rather than assuming breach.
 3. **Validator LLM Adjudication**: While validator reasoning is constrained by strict prompt delimiters and a rigid schema, natural language interpretation is probabilistic. Multi-validator consensus and fail-closed schemas mitigate prompt injection and hallucinations.
-4. **Placeholder Fixture URLs**: Current local snapshot fixtures contain placeholder URLs pending public repository publication and the Two-Commit publication flow. Live validator consensus testing is not claimed.
+4. **Public Fixture Commit Pinned**: All snapshot fixtures strictly reference public commit-pinned HTTPS raw URLs at `COMMIT_A` (`7060b5e631fb5e2581fc51f7d23bf331ee79184c`).
 5. **Lifetime Epoch Bound**: Storage is constrained to a maximum of 12 lifetime reporting epochs per contract deployment to prevent state bloat on the GenVM network.
 6. **Citation Exactness**: Semantic challenges require the cited text to exist literally (16..500 characters) within the hash-verified evidence documents; paraphrased or inferred citations are treated as unsupported and resolve `UPHELD`.
 
