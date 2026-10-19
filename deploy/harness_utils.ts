@@ -629,14 +629,9 @@ export function isTerminalReceipt(receipt: unknown): boolean {
     }
   }
 
-  // 3. EVM status check (status 0 / "0x0" is EVM failure; status 1 / "0x1" with receipt fields is EVM success)
+  // 3. EVM status check (status 0 / "0x0" is EVM failure)
   if (rec.status === 0 || rec.status === "0x0") {
     return true;
-  }
-  if (rec.status === 1 || rec.status === "0x1") {
-    if (rec.value_credited !== undefined || rec.contractAddress === null || rec.blockNumber !== undefined || rec.transactionHash !== undefined) {
-      return true;
-    }
   }
 
   return false;
@@ -1890,9 +1885,9 @@ export async function verifyScenario5ResumeState(
     functionName: "get_current_status",
     args: [],
   });
-  if (status !== "OPEN") {
+  if (status !== "OPEN" && status !== "CHALLENGED") {
     throw new Error(
-      `Scenario 5 resume state validation failed: expected status 'OPEN', got '${status}'`
+      `Scenario 5 resume state validation failed: expected status 'OPEN' or 'CHALLENGED', got '${status}'`
     );
   }
 
@@ -1905,21 +1900,38 @@ export async function verifyScenario5ResumeState(
   if (!acct.invariant_satisfied) {
     throw new Error("Scenario 5 resume state validation failed: accounting invariant broken");
   }
-  if (acct.contract_balance !== expectedIssuerBond) {
-    throw new Error(
-      `Scenario 5 resume state validation failed: contract balance (${acct.contract_balance.toString()} wei) does not match expected issuer bond (${expectedIssuerBond.toString()} wei)`
-    );
-  }
   if (acct.locked_issuer_bonds !== expectedIssuerBond) {
     throw new Error(
       `Scenario 5 resume state validation failed: locked issuer bonds (${acct.locked_issuer_bonds.toString()} wei) does not match expected (${expectedIssuerBond.toString()} wei)`
     );
   }
-  if (acct.locked_challenger_bonds !== 0n) {
-    throw new Error(
-      `Scenario 5 resume state validation failed: locked challenger bonds is non-zero (${acct.locked_challenger_bonds.toString()} wei)`
-    );
+
+  if (status === "OPEN") {
+    if (acct.contract_balance !== expectedIssuerBond) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: contract balance (${acct.contract_balance.toString()} wei) does not match expected issuer bond (${expectedIssuerBond.toString()} wei)`
+      );
+    }
+    if (acct.locked_challenger_bonds !== 0n) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: locked challenger bonds is non-zero (${acct.locked_challenger_bonds.toString()} wei)`
+      );
+    }
+  } else {
+    // status === "CHALLENGED"
+    const expectedTotalBond = expectedIssuerBond + 5000000000000000n; // 0.015 GEN
+    if (acct.contract_balance !== expectedTotalBond) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: contract balance (${acct.contract_balance.toString()} wei) does not match expected challenged bond total (${expectedTotalBond.toString()} wei)`
+      );
+    }
+    if (acct.locked_challenger_bonds !== 5000000000000000n) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: locked challenger bonds (${acct.locked_challenger_bonds.toString()} wei) does not match expected (5000000000000000 wei)`
+      );
+    }
   }
+
   if (acct.total_credits !== 0n) {
     throw new Error(
       `Scenario 5 resume state validation failed: total credits is non-zero (${acct.total_credits.toString()} wei)`
@@ -1934,16 +1946,36 @@ export async function verifyScenario5ResumeState(
   if (!ep || !ep.active) {
     throw new Error("Scenario 5 resume state validation failed: epoch 1 is not active");
   }
-  if (ep.epoch_id !== 1 || ep.status !== "OPEN") {
+  if (ep.epoch_id !== 1) {
     throw new Error(
-      `Scenario 5 resume state validation failed: unexpected epoch id (${ep.epoch_id}) or status (${ep.status})`
+      `Scenario 5 resume state validation failed: unexpected epoch id (${ep.epoch_id})`
     );
   }
-  const zeroAddr = "0x0000000000000000000000000000000000000000";
-  if (ep.challenger && ep.challenger.toLowerCase() !== zeroAddr) {
-    throw new Error(
-      `Scenario 5 resume state validation failed: challenge is already active by ${ep.challenger}`
-    );
+
+  if (status === "OPEN") {
+    if (ep.status !== "OPEN") {
+      throw new Error(
+        `Scenario 5 resume state validation failed: epoch status is '${ep.status}', expected 'OPEN'`
+      );
+    }
+    const zeroAddr = "0x0000000000000000000000000000000000000000";
+    if (ep.challenger && ep.challenger.toLowerCase() !== zeroAddr) {
+      throw new Error(
+        `Scenario 5 resume state validation failed: challenge is already active by ${ep.challenger}`
+      );
+    }
+  } else {
+    // status === "CHALLENGED"
+    if (ep.status !== "CHALLENGED") {
+      throw new Error(
+        `Scenario 5 resume state validation failed: epoch status is '${ep.status}', expected 'CHALLENGED'`
+      );
+    }
+    if (!ep.challenger || ep.challenger === "0x0000000000000000000000000000000000000000") {
+      throw new Error(
+        "Scenario 5 resume state validation failed: epoch status is CHALLENGED but challenger address is empty"
+      );
+    }
   }
 
   return {

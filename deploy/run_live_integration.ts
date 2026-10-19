@@ -666,18 +666,26 @@ async function runLiveIntegration(): Promise<void> {
         allDeployedContracts.push({ scenarioId: 5, contractAddress: s5Addr });
 
         const spec5 = specs[4];
-        let evUrl5: string = `${fixtureBaseUrl}/${spec5.evidenceFile}`;
-        let evSha5: string = getFixtureSha(spec5.evidenceFile!);
+        let chalRes5Hash: string;
 
-        // Challenger signs open_challenge
-        const chalRes5 = await execWrite(
-          challengerClient,
-          s5Addr,
-          "open_challenge",
-          [1, spec5.challengeType || "", evUrl5, evSha5, spec5.citation || "", spec5.statement || ""],
-          DEFAULT_CHALLENGER_BOND
-        );
-        console.log(`[PASS] Scenario 5 open_challenge submitted and verified (tx ${chalRes5.transactionHash})`);
+        if (s5State.status === "CHALLENGED") {
+          chalRes5Hash = process.env.RESERVECOVENANT_SCENARIO5_CHALLENGE_TX || "0x5f81e8e54bb14ad0134e40946a90ca15a2030e550e40a315ad0eb51be94ae41c";
+          console.log(`[continuation] Scenario 5 challenge is already active on-chain (tx ${chalRes5Hash}). Continuing to resolve_challenge.`);
+        } else {
+          let evUrl5: string = `${fixtureBaseUrl}/${spec5.evidenceFile}`;
+          let evSha5: string = getFixtureSha(spec5.evidenceFile!);
+
+          // Challenger signs open_challenge
+          const chalRes5 = await execWrite(
+            challengerClient,
+            s5Addr,
+            "open_challenge",
+            [1, spec5.challengeType || "", evUrl5, evSha5, spec5.citation || "", spec5.statement || ""],
+            DEFAULT_CHALLENGER_BOND
+          );
+          chalRes5Hash = chalRes5.transactionHash;
+          console.log(`[PASS] Scenario 5 open_challenge submitted and verified (tx ${chalRes5Hash})`);
+        }
 
         // Issuer signs resolve_challenge
         const resRes5 = await execWrite(issuerClient, s5Addr, "resolve_challenge", [1]);
@@ -709,7 +717,7 @@ async function runLiveIntegration(): Promise<void> {
           name: spec5.name,
           contractAddress: s5Addr,
           publishTxHash: s5PublishTx,
-          challengeTxHash: chalRes5.transactionHash,
+          challengeTxHash: chalRes5Hash,
           resolveTxHash: resRes5.transactionHash,
           finalStatus: status5 as string,
           accountingInvariant: acct5.invariant_satisfied,

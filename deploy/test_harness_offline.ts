@@ -1946,7 +1946,45 @@ async function runOfflineHarnessTests(): Promise<void> {
     activeChallengeCaught = true;
     assert(err.message.includes("challenge is already active"), "25g. Active challenge must fail closed");
   }
-  assert(activeChallengeCaught, "25h. Already-challenged Scenario 5 must fail closed");
+  assert(activeChallengeCaught, "25h. Already-challenged Scenario 5 with OPEN status must fail closed");
+
+  // Test valid CHALLENGED resume state
+  const mockS5ChallengedValid = {
+    getContractCode: async () => validContractCode,
+    readContract: async ({ functionName }: { functionName: string }) => {
+      if (functionName === "get_current_status") return "CHALLENGED";
+      if (functionName === "get_accounting") {
+        return {
+          contract_balance: 15000000000000000n,
+          locked_issuer_bonds: 10000000000000000n,
+          locked_challenger_bonds: 5000000000000000n,
+          total_credits: 0n,
+          invariant_satisfied: true,
+        };
+      }
+      if (functionName === "get_active_epoch") {
+        return {
+          active: true,
+          epoch_id: 1,
+          status: "CHALLENGED",
+          challenger: "0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9",
+          snapshot_url: "https://example.com/snapshot.json",
+          snapshot_sha256: "0".repeat(64),
+          challenge_deadline: 9999999999,
+        };
+      }
+      throw new Error(`Unexpected function: ${functionName}`);
+    },
+  };
+
+  const s5StateChallenged = await verifyScenario5ResumeState(
+    mockS5ChallengedValid,
+    "0xbd80518107647cD17c1Af617c5a50fc5b9B037ee" as Address,
+    validCodeSha
+  );
+  assert(s5StateChallenged.status === "CHALLENGED", "25i. Status must be CHALLENGED");
+  assert(s5StateChallenged.contractBalanceWei === 15000000000000000n, "25j. Challenged balance must be 0.015 GEN");
+  assert(s5StateChallenged.lockedChallengerBondsWei === 5000000000000000n, "25k. Locked challenger bond must be 0.005 GEN");
 
   // --------------------------------------------------------------------------
   // [26] Subset Continuation Transaction Planning
