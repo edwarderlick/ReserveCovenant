@@ -36,6 +36,7 @@ import {
   calculateChallengerFundingShortfall,
   calculateRequiredIssuerBalance,
   verifyReceiptExecution,
+  verifyNativeTransferReceipt,
   expectContractExecutionError,
   executeAndVerifyChallengerFunding,
   evaluateEconomicCleanup,
@@ -50,6 +51,8 @@ import {
   type SweepResultRecord,
   type PrimaryScenariosStatus,
   type ValidatedReceiptSummary,
+  type ValidatedNativeTransferSummary,
+  type ChallengerFundingResult,
 } from "./harness_utils.js";
 
 export const DEFAULT_ISSUER_BOND = 10000000000000000n; // 0.01 GEN
@@ -276,7 +279,8 @@ async function runLiveIntegration(): Promise<void> {
     console.error(`[BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION] ${fixtureValidation.error}`);
     console.error("GenLayer validators require immutable public commit-pinned HTTPS fixture URLs.");
     console.error("Zero deployments and zero transactions submitted.");
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   // 3. Resolve Issuer Signer from OS keychain
@@ -304,72 +308,81 @@ async function runLiveIntegration(): Promise<void> {
     account: challengerAccount,
   });
 
-  // 5. Calculate dynamic challenger funding derived from exact scenario count + cleanup
-  const specs = getLiveScenariosSpec();
-  const plan = deriveScenarioTransactionPlan(specs, true);
-  const challengerTxCount = plan.challengerSignedTransactionCount;
-  const challengeBondCount = plan.challengeBondTransactionCount;
-  const feeEstimate = await issuerClient.estimateTransactionFees();
-  const feePerTx = BigInt(feeEstimate.feeValue);
+  const records: ScenarioRecord[] = [];
+  const allDeployedContracts: { scenarioId: number; contractAddress: Address }[] = [];
+  const cleanupRecords: CleanupPartyResult[] = [];
+  let primaryScenarioError: unknown = null;
+  let sweepRecord: SweepResultRecord | undefined;
 
-  const requiredFunding = calculateRequiredChallengerFunding({
-    challengeBondTransactionCount: challengeBondCount,
-    challengerSignedTransactionCount: challengerTxCount,
-    challengerBond: DEFAULT_CHALLENGER_BOND,
-    estimatedFeePerTx: feePerTx,
-  });
+  try {
+    // 5. Calculate dynamic challenger funding derived from exact scenario count + cleanup
+    const specs = getLiveScenariosSpec();
+    const plan = deriveScenarioTransactionPlan(specs, true);
+    const challengerTxCount = plan.challengerSignedTransactionCount;
+    const challengeBondCount = plan.challengeBondTransactionCount;
+    const feeEstimate = await issuerClient.estimateTransactionFees();
+    const feePerTx = BigInt(feeEstimate.feeValue);
 
-  const challengerCurrentBal = await issuerClient.getBalance({
-    address: challengerAccount.address,
-  });
-  const shortfall = calculateChallengerFundingShortfall(requiredFunding, challengerCurrentBal);
-
-  console.log(`[live] Challenge bond transactions:  ${challengeBondCount.toString()}`);
-  console.log(`[live] Challenger signed tx count:   ${challengerTxCount.toString()} (challenges + cleanup + sweep)`);
-  console.log(`[live] Estimated fee per tx:         ${feePerTx.toString()} wei`);
-  console.log(`[live] Required challenger funding:   ${requiredFunding.toString()} wei`);
-  console.log(`[live] Challenger current balance:    ${challengerCurrentBal.toString()} wei`);
-  console.log(`[live] Challenger funding shortfall:  ${shortfall.toString()} wei`);
-
-  // Verify Issuer balance preflight with conservative deployment heuristic
-  const issuerBal = issuerSigner.balance ?? 0n;
-  const requiredIssuerBal = calculateRequiredIssuerBalance({
-    disposableDeployCount: 8n,
-    deployFeePerTx: feePerTx * DEPLOY_FEE_HEURISTIC_MULTIPLIER,
-    issuerBondsTotal: 8n * DEFAULT_ISSUER_BOND,
-    issuerTxCount: plan.issuerSignedTransactionCount,
-    txFeePerTx: feePerTx,
-    challengerShortfall: shortfall,
-  });
-
-  console.log(`[live] Issuer current balance:        ${issuerBal.toString()} wei`);
-  console.log(`[live] Required issuer balance:       ${requiredIssuerBal.toString()} wei`);
-
-  if (issuerBal < requiredIssuerBal) {
-    console.error(
-      `[BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE] Issuer balance (${issuerBal.toString()} wei) ` +
-      `is below required Studio Devnet preflight amount (${requiredIssuerBal.toString()} wei).`
-    );
-    process.exit(1);
-  }
-
-  // Fund ephemeral challenger from issuer only if shortfall > 0
-  if (shortfall > 0n) {
-    await executeAndVerifyChallengerFunding({
-      issuerClient,
-      issuerAccount: issuerSigner.account,
-      challengerAddress: challengerAccount.address,
-      fundingAmount: shortfall,
-      requiredPostBalance: requiredFunding,
+    const requiredFunding = calculateRequiredChallengerFunding({
+      challengeBondTransactionCount: challengeBondCount,
+      challengerSignedTransactionCount: challengerTxCount,
+      challengerBond: DEFAULT_CHALLENGER_BOND,
+      estimatedFeePerTx: feePerTx,
     });
-  }
 
-  // Zero/clear private key variable reference from memory
-  challengerPrivKey = null;
+    const challengerCurrentBal = await issuerClient.getBalance({
+      address: challengerAccount.address,
+    });
+    const shortfall = calculateChallengerFundingShortfall(requiredFunding, challengerCurrentBal);
 
-  const contractPath = path.resolve(process.cwd(), "contracts/reservecovenant.py");
-  const contractSource = fs.readFileSync(contractPath, "utf-8");
-  const fixturesDir = path.resolve(process.cwd(), "fixtures");
+    console.log(`[live] Challenge bond transactions:  ${challengeBondCount.toString()}`);
+    console.log(`[live] Challenger signed tx count:   ${challengerTxCount.toString()} (challenges + cleanup + sweep)`);
+    console.log(`[live] Estimated fee per tx:         ${feePerTx.toString()} wei`);
+    console.log(`[live] Required challenger funding:   ${requiredFunding.toString()} wei`);
+    console.log(`[live] Challenger current balance:    ${challengerCurrentBal.toString()} wei`);
+    console.log(`[live] Challenger funding shortfall:  ${shortfall.toString()} wei`);
+
+    // Verify Issuer balance preflight with conservative deployment heuristic
+    const issuerBal = issuerSigner.balance ?? 0n;
+    const requiredIssuerBal = calculateRequiredIssuerBalance({
+      disposableDeployCount: 8n,
+      deployFeePerTx: feePerTx * DEPLOY_FEE_HEURISTIC_MULTIPLIER,
+      issuerBondsTotal: 8n * DEFAULT_ISSUER_BOND,
+      issuerTxCount: plan.issuerSignedTransactionCount,
+      txFeePerTx: feePerTx,
+      challengerShortfall: shortfall,
+    });
+
+    console.log(`[live] Issuer current balance:        ${issuerBal.toString()} wei`);
+    console.log(`[live] Required issuer balance:       ${requiredIssuerBal.toString()} wei`);
+
+    if (issuerBal < requiredIssuerBal) {
+      console.error(
+        `[BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE] Issuer balance (${issuerBal.toString()} wei) ` +
+        `is below required Studio Devnet preflight amount (${requiredIssuerBal.toString()} wei).`
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    // Fund ephemeral challenger from issuer only if shortfall > 0
+    if (shortfall > 0n) {
+      const fundResult = await executeAndVerifyChallengerFunding({
+        issuerClient,
+        issuerAccount: issuerSigner.account,
+        challengerAddress: challengerAccount.address,
+        fundingAmount: shortfall,
+        requiredPostBalance: requiredFunding,
+      });
+      console.log(`[live] Challenger funding confirmed via native transfer verifier (tx ${fundResult.fundTxHash})`);
+    }
+
+    // Retain in-memory ephemeral account across scenario execution and cleanup.
+    // In-memory reference will be released in finally block.
+
+    const contractPath = path.resolve(process.cwd(), "contracts/reservecovenant.py");
+    const contractSource = fs.readFileSync(contractPath, "utf-8");
+    const fixturesDir = path.resolve(process.cwd(), "fixtures");
 
   const getFixtureSha = (filename: string): string => {
     return crypto.createHash("sha256").update(fs.readFileSync(path.join(fixturesDir, filename))).digest("hex");
@@ -460,17 +473,22 @@ async function runLiveIntegration(): Promise<void> {
     };
   };
 
-  const records: ScenarioRecord[] = [];
+    // Wrap disposable deployment with tracking
+    const trackDeploy = async (scenarioId: number): Promise<{ address: Address; txHash: string }> => {
+      const dep = await deployDisposableInstance(issuerClient, contractSource, issuerSigner.account.address);
+      allDeployedContracts.push({ scenarioId, contractAddress: dep.address });
+      return dep;
+    };
 
-  // Helper to run standard challenged scenario (Scenarios 1..6)
-  const runStandardChallengedScenario = async (
-    spec: ScenarioCallSpec
-  ): Promise<ScenarioRecord> => {
-    console.log(`\n--- Scenario ${spec.scenarioId}: ${spec.name} ---`);
-    const { address: dispAddr, txHash: depTx } = await deployDisposableInstance(issuerClient, contractSource, issuerSigner.account.address);
-    console.log(`Disposable contract deployed: ${dispAddr}`);
+    // Helper to run standard challenged scenario (Scenarios 1..6)
+    const runStandardChallengedScenario = async (
+      spec: ScenarioCallSpec
+    ): Promise<ScenarioRecord> => {
+      console.log(`\n--- Scenario ${spec.scenarioId}: ${spec.name} ---`);
+      const { address: dispAddr, txHash: depTx } = await trackDeploy(spec.scenarioId);
+      console.log(`Disposable contract deployed: ${dispAddr}`);
 
-    let snapUrl: string;
+      let snapUrl: string;
     let snapSha: string;
     if (spec.snapshotFile === "unreachable") {
       snapUrl = "https://unreachable-domain-12345.example.com/snapshot.json";
@@ -545,14 +563,15 @@ async function runLiveIntegration(): Promise<void> {
     return record;
   };
 
-  // Run Scenarios 1..6
-  for (let i = 0; i < 6; i++) {
-    records.push(await runStandardChallengedScenario(specs[i]));
-  }
+  try {
+    // Run Scenarios 1..6
+    for (let i = 0; i < 6; i++) {
+      records.push(await runStandardChallengedScenario(specs[i]));
+    }
 
   // --- Scenario 7: Repeated Resolution Reverts on FRESH Contract ---
   console.log("\n--- Scenario 7: Repeated Resolution Reverts (Fresh Contract) ---");
-  const { address: addr7, txHash: depTx7 } = await deployDisposableInstance(issuerClient, contractSource, issuerSigner.account.address);
+  const { address: addr7, txHash: depTx7 } = await trackDeploy(7);
   const pubRes7 = await execWrite(
     issuerClient,
     addr7,
@@ -645,7 +664,7 @@ async function runLiveIntegration(): Promise<void> {
 
   // --- Scenario 8: Pull-Credit Withdrawal & No Double-Spend ---
   console.log("\n--- Scenario 8: Pull-Credit Withdrawal & No Double-Spend ---");
-  const { address: addr8, txHash: depTx8 } = await deployDisposableInstance(issuerClient, contractSource, issuerSigner.account.address);
+  const { address: addr8, txHash: depTx8 } = await trackDeploy(8);
   const pubRes8 = await execWrite(
     issuerClient,
     addr8,
@@ -744,6 +763,14 @@ async function runLiveIntegration(): Promise<void> {
     accountingInvariant: acct8Final.invariant_satisfied,
   });
   console.log(`[PASS] Scenario 8 completed: Single withdrawal succeeded and double withdrawal reverted cleanly.`);
+  } catch (scenarioErr: unknown) {
+    primaryScenarioError = scenarioErr;
+    console.error(
+      `\n[SCENARIO_EXECUTION_ERROR] Primary scenario execution encountered error:`,
+      scenarioErr instanceof Error ? scenarioErr.message : String(scenarioErr)
+    );
+    console.warn("Preserving transaction evidence and proceeding to mandatory cleanup...");
+  }
 
   // --- Phase 7: Comprehensive Economic Cleanup & Fund Recovery ---
   console.log("\n--- Phase 7: Comprehensive Economic Cleanup & Fund Recovery ---");
@@ -977,125 +1004,224 @@ async function runLiveIntegration(): Promise<void> {
     });
   }
 
-  // 3. Measurable Challenger Balance Sweep Back to Issuer
-  let sweepRecord: SweepResultRecord;
-  try {
-    const preSweepBal = await issuerClient.getBalance({
-      address: challengerAccount.address,
-    });
-    console.log(`[cleanup-sweep] Pre-sweep challenger balance: ${preSweepBal.toString()} wei`);
-
-    if (preSweepBal === 0n) {
-      sweepRecord = {
-        disposition: "NOT_REQUIRED_ZERO_BALANCE",
-        preSweepBalanceWei: 0n,
-        postSweepObservedResidualBalanceWei: 0n,
-      };
-      console.log(`[cleanup-sweep] Challenger balance is exactly zero; sweep not required.`);
-    } else {
-      const sweepFeeEst = await issuerClient.estimateTransactionFees();
-      const feeVal = BigInt(sweepFeeEst.feeValue);
-      const requiredFeeReserve = feeVal * 2n;
-
-      if (preSweepBal <= requiredFeeReserve) {
-        sweepRecord = {
-          disposition: "BLOCKED_INSUFFICIENT_FEE",
-          preSweepBalanceWei: preSweepBal,
-          estimatedFeeWei: feeVal,
-          postSweepObservedResidualBalanceWei: preSweepBal,
-          error: `Challenger balance (${preSweepBal.toString()} wei) cannot cover sweep fee reserve (${requiredFeeReserve.toString()} wei).`,
-        };
-        console.warn(`[cleanup-sweep] Sweep blocked: ${sweepRecord.error}`);
-      } else {
-        const attemptedSweepAmount = preSweepBal - requiredFeeReserve;
-        console.log(`[cleanup-sweep] Attempting sweep of ${attemptedSweepAmount.toString()} wei back to issuer...`);
-        let hash: string | undefined;
-        try {
-          hash = await challengerClient.sendTransaction({
-            account: challengerAccount,
-            to: issuerSigner.account.address,
-            value: attemptedSweepAmount,
-            chain: null,
-          });
-          const receipt = await challengerClient.waitForTransactionReceipt({ hash: hash as unknown as TransactionHash });
-          const summary = verifyReceiptExecution(receipt, "challenger residual sweep", "sendTransaction");
-          const postSweepBal = await issuerClient.getBalance({
-            address: challengerAccount.address,
-          });
-
-          sweepRecord = {
-            disposition: "COMPLETED",
-            preSweepBalanceWei: preSweepBal,
-            estimatedFeeWei: feeVal,
-            attemptedSweepAmountWei: attemptedSweepAmount,
-            sweepTransactionHash: hash,
-            receiptStatus: summary.status,
-            executionResult: summary.executionResult,
-            receiptSummary: summary,
-            postSweepObservedResidualBalanceWei: postSweepBal,
-          };
-
-          console.log(`[cleanup-sweep] Sweep completed with ${summary.status} and ${summary.executionResult} (tx ${hash}).`);
-          console.log(`[cleanup-sweep] Post-sweep observed residual balance (dust): ${postSweepBal.toString()} wei.`);
-        } catch (sweepErr: unknown) {
-          const msg = sweepErr instanceof Error ? sweepErr.message : String(sweepErr);
-          console.warn(`[cleanup-warning] Challenger residual sweep transaction failed: ${msg}`);
-          sweepRecord = {
-            disposition: "FAILED",
-            preSweepBalanceWei: preSweepBal,
-            estimatedFeeWei: feeVal,
-            attemptedSweepAmountWei: attemptedSweepAmount,
-            sweepTransactionHash: hash,
-            error: msg,
-          };
+    // In case of mid-scenario failure, also check any deployed contract not in records
+    const recordedContractAddrs = new Set(records.map((r) => r.contractAddress.toLowerCase()));
+    for (const deployed of allDeployedContracts) {
+      if (!recordedContractAddrs.has(deployed.contractAddress.toLowerCase())) {
+        for (const party of ["challenger", "issuer"] as const) {
+          const actingClient = party === "challenger" ? challengerClient : issuerClient;
+          const actingAddress = party === "challenger" ? challengerAccount.address : issuerSigner.address;
+          try {
+            const creditRaw = await issuerClient.readContract({
+              address: deployed.contractAddress,
+              functionName: "get_credit",
+              args: [actingAddress],
+            });
+            const obsCredit = parseCredit(creditRaw);
+            if (obsCredit > 0n) {
+              console.log(`[cleanup-${party}] Emergency recovering ${obsCredit.toString()} wei credit from partially executed contract ${deployed.contractAddress}...`);
+              const writeRes = await execWrite(actingClient, deployed.contractAddress, "withdraw_credit", []);
+              cleanupRecords.push({
+                scenarioId: deployed.scenarioId,
+                contractAddress: deployed.contractAddress,
+                party,
+                status: "WITHDRAWN",
+                expectedCredit: obsCredit,
+                observedCredit: obsCredit,
+                transactionHash: writeRes.transactionHash,
+                receiptStatus: writeRes.receiptStatus,
+                executionResult: writeRes.executionResult,
+                receiptSummary: writeRes.receiptSummary,
+                postWithdrawalCredit: 0n,
+                accountingInvariantSatisfied: true,
+              });
+            }
+          } catch (err: unknown) {
+            console.warn(`[cleanup-error] Partial contract check failed for ${party} on ${deployed.contractAddress}:`, err);
+          }
         }
       }
     }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[cleanup-warning] Challenger residual sweep failed: ${msg}`);
-    sweepRecord = {
-      disposition: "FAILED",
-      error: msg,
-    };
+
+    // 3. Measurable Challenger Balance Sweep Back to Issuer (Native Transfer)
+    try {
+      const preSweepBal = await issuerClient.getBalance({
+        address: challengerAccount.address,
+      });
+      console.log(`[cleanup-sweep] Pre-sweep challenger balance: ${preSweepBal.toString()} wei`);
+
+      if (preSweepBal === 0n) {
+        sweepRecord = {
+          disposition: "NOT_REQUIRED_ZERO_BALANCE",
+          preSweepBalanceWei: 0n,
+          postSweepObservedResidualBalanceWei: 0n,
+        };
+        console.log(`[cleanup-sweep] Challenger balance is exactly zero; sweep not required.`);
+      } else {
+        const sweepFeeEst = await issuerClient.estimateTransactionFees();
+        const feeVal = BigInt(sweepFeeEst.feeValue);
+        let gasPrice = 0n;
+        try {
+          const gp = await issuerClient.request({ method: "eth_gasPrice" });
+          gasPrice = BigInt(gp);
+        } catch {
+          gasPrice = 0n;
+        }
+
+        const requiredFeeReserve = gasPrice > 0n ? feeVal * 2n : 0n;
+
+        if (preSweepBal <= requiredFeeReserve && requiredFeeReserve > 0n) {
+          sweepRecord = {
+            disposition: "BLOCKED_INSUFFICIENT_FEE",
+            preSweepBalanceWei: preSweepBal,
+            estimatedFeeWei: feeVal,
+            postSweepObservedResidualBalanceWei: preSweepBal,
+            error: `Challenger balance (${preSweepBal.toString()} wei) cannot cover sweep fee reserve (${requiredFeeReserve.toString()} wei).`,
+          };
+          console.warn(`[cleanup-sweep] Sweep blocked: ${sweepRecord.error}`);
+        } else {
+          let attemptedSweepAmount = preSweepBal - requiredFeeReserve;
+          if (attemptedSweepAmount <= 0n) {
+            attemptedSweepAmount = preSweepBal;
+          }
+          console.log(`[cleanup-sweep] Attempting native sweep of ${attemptedSweepAmount.toString()} wei back to issuer...`);
+          let hash: string | undefined;
+          try {
+            const issuerPreSweepBal = await issuerClient.getBalance({
+              address: issuerSigner.account.address,
+            });
+
+            hash = await challengerClient.sendTransaction({
+              account: challengerAccount,
+              to: issuerSigner.account.address,
+              value: attemptedSweepAmount,
+              chain: null,
+            });
+            const receipt = await challengerClient.waitForTransactionReceipt({
+              hash: hash as unknown as TransactionHash,
+            });
+            const issuerPostSweepBal = await issuerClient.getBalance({
+              address: issuerSigner.account.address,
+            });
+            const postSweepBal = await issuerClient.getBalance({
+              address: challengerAccount.address,
+            });
+
+            const summary = verifyNativeTransferReceipt({
+              receipt,
+              context: "challenger residual sweep",
+              expectedHash: String(hash),
+              expectedSender: challengerAccount.address,
+              expectedRecipient: issuerSigner.account.address,
+              requestedAmountWei: attemptedSweepAmount,
+              preBalanceWei: issuerPreSweepBal,
+              postBalanceWei: issuerPostSweepBal,
+            });
+
+            sweepRecord = {
+              disposition: "COMPLETED",
+              preSweepBalanceWei: preSweepBal,
+              estimatedFeeWei: feeVal,
+              attemptedSweepAmountWei: attemptedSweepAmount,
+              sweepTransactionHash: hash,
+              receiptStatus: summary.status,
+              executionResult: summary.executionResult,
+              receiptSummary: summary,
+              nativeTransferSummary: summary,
+              postSweepObservedResidualBalanceWei: postSweepBal,
+              issuerPreSweepBalanceWei: issuerPreSweepBal,
+              issuerPostSweepBalanceWei: issuerPostSweepBal,
+            };
+
+            console.log(`[cleanup-sweep] Sweep completed with ${summary.status} and ${summary.executionResult} (tx ${hash}).`);
+            console.log(`[cleanup-sweep] Post-sweep observed residual balance (dust): ${postSweepBal.toString()} wei.`);
+          } catch (sweepErr: unknown) {
+            const msg = sweepErr instanceof Error ? sweepErr.message : String(sweepErr);
+            console.warn(`[cleanup-warning] Challenger residual sweep transaction failed: ${msg}`);
+            sweepRecord = {
+              disposition: "FAILED",
+              preSweepBalanceWei: preSweepBal,
+              estimatedFeeWei: feeVal,
+              attemptedSweepAmountWei: attemptedSweepAmount,
+              sweepTransactionHash: hash,
+              error: msg,
+            };
+          }
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[cleanup-warning] Challenger residual sweep failed: ${msg}`);
+      sweepRecord = {
+        disposition: "FAILED",
+        error: msg,
+      };
+    }
+
+    // 4. Strict Economic Cleanup Evaluation
+    const primaryStatus: PrimaryScenariosStatus =
+      !primaryScenarioError && records.length === 8 && records.every((r) => r.accountingInvariant)
+        ? "PRIMARY_SCENARIOS_PASS"
+        : "PRIMARY_SCENARIOS_FAIL";
+
+    const cleanupReport = evaluateEconomicCleanup({
+      cleanupRecords,
+      expectedTargets,
+      expectedPlan: plan,
+      primaryScenariosStatus: primaryStatus,
+      sweepRecord,
+    });
+
+    console.log(`\n--- Economic Cleanup Evaluation ---`);
+    console.log(`Total Challenger Credits Withdrawn: ${cleanupReport.totalChallengerCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedChallengerRecoverableCreditsWei.toString()} wei)`);
+    console.log(`Total Issuer Credits Withdrawn:     ${cleanupReport.totalIssuerCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedIssuerRecoverableCreditsWei.toString()} wei)`);
+    console.log(`Total Contract Credits Withdrawn:   ${cleanupReport.totalContractCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedTotalContractCreditsWei.toString()} wei)`);
+    console.log(`Primary Scenarios Status:           ${cleanupReport.primaryScenariosStatus}`);
+    console.log(`Economic Cleanup Status:            ${cleanupReport.status}`);
+    console.log(`Live Readiness Status:              ${cleanupReport.liveReadinessStatus}`);
+
+    if (primaryScenarioError) {
+      console.error(
+        `\n[PRIMARY_SCENARIO_FAILURE] Scenario execution failed:`,
+        primaryScenarioError instanceof Error ? primaryScenarioError.message : String(primaryScenarioError)
+      );
+      console.error(`Economic Cleanup Disposition: ${cleanupReport.status}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    if (cleanupReport.liveReadinessStatus !== "LIVE_READINESS_PASS") {
+      console.error(`\n[ECONOMIC_CLEANUP_FAILURE] Cleanup did not achieve complete resolution.`);
+      console.error(
+        `Unresolved credits: ${cleanupReport.unresolvedCreditsWei.toString()} wei across contracts: ${cleanupReport.unresolvedContractAddresses.join(", ")}`
+      );
+      console.error("Preserving scenario evidence. Live readiness blocked.");
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log("\n=== ALL 8 LIVE INTEGRATION SCENARIOS PASSED AND ECONOMIC CLEANUP VERIFIED ===");
+    process.exitCode = 0;
+  } catch (fatalErr: unknown) {
+    console.error("Fatal error during live integration execution:", fatalErr);
+    process.exitCode = 1;
+  } finally {
+    // In-memory ephemeral signer references released ONLY after cleanup finishes
+    challengerPrivKey = null;
+    console.log("[cleanup-lifecycle] Ephemeral challenger in-memory references released after cleanup.");
   }
-
-  // 4. Strict Economic Cleanup Evaluation
-  const primaryStatus: PrimaryScenariosStatus =
-    records.length === 8 && records.every((r) => r.accountingInvariant)
-      ? "PRIMARY_SCENARIOS_PASS"
-      : "PRIMARY_SCENARIOS_FAIL";
-
-  const cleanupReport = evaluateEconomicCleanup({
-    cleanupRecords,
-    expectedTargets,
-    expectedPlan: plan,
-    primaryScenariosStatus: primaryStatus,
-    sweepRecord,
-  });
-
-  console.log(`\n--- Economic Cleanup Evaluation ---`);
-  console.log(`Total Challenger Credits Withdrawn: ${cleanupReport.totalChallengerCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedChallengerRecoverableCreditsWei.toString()} wei)`);
-  console.log(`Total Issuer Credits Withdrawn:     ${cleanupReport.totalIssuerCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedIssuerRecoverableCreditsWei.toString()} wei)`);
-  console.log(`Total Contract Credits Withdrawn:   ${cleanupReport.totalContractCreditsWithdrawnWei.toString()} wei (expected: ${plan.expectedTotalContractCreditsWei.toString()} wei)`);
-  console.log(`Primary Scenarios Status:           ${cleanupReport.primaryScenariosStatus}`);
-  console.log(`Economic Cleanup Status:            ${cleanupReport.status}`);
-  console.log(`Live Readiness Status:              ${cleanupReport.liveReadinessStatus}`);
-
-  if (cleanupReport.liveReadinessStatus !== "LIVE_READINESS_PASS") {
-    console.error(`\n[ECONOMIC_CLEANUP_FAILURE] Cleanup did not achieve complete resolution.`);
-    console.error(`Unresolved credits: ${cleanupReport.unresolvedCreditsWei.toString()} wei across contracts: ${cleanupReport.unresolvedContractAddresses.join(", ")}`);
-    console.error("Preserving primary scenario evidence. Halting with non-zero exit code.");
-    process.exit(1);
-  }
-
-  console.log("\n=== ALL 8 LIVE INTEGRATION SCENARIOS PASSED AND ECONOMIC CLEANUP VERIFIED ===");
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  runLiveIntegration().catch((err) => {
-    console.error("Live integration test error:", err);
-    process.exit(1);
-  });
+  runLiveIntegration()
+    .then(() => {
+      if (process.exitCode && process.exitCode !== 0) {
+        process.exit(process.exitCode);
+      }
+    })
+    .catch((err) => {
+      console.error("Live integration fatal uncaught error:", err);
+      process.exit(1);
+    });
 }

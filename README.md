@@ -327,7 +327,7 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 | Signer & Guard Tests | `tests/direct/test_signer_resolver.py` | 6 | **PASSED** | Autonomous keychain signer, fail-closed guards, secret cleanliness, factory resolution |
 | **Total Direct Tests** | | **82** | **100% PASS** | Zero regressions across existing unit test suite |
 | Offline Harness (Python) | `tests/harness/test_live_harness_offline.py` | 15 | **PASSED** | Signer separation logic, distinct ephemeral challenger resolution, fail-closed guards, receipt-backed error classification, session-scoped balance preflight, dynamic fee validation (`OFFLINE_HARNESS_VALIDATION_PASS`) |
-| Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 18 checks | **PASSED** | Pure offline harness validation: authoritative SDK status mappings, actual receipt evidence, exact 13-target manifest matching, discriminated failure tracking, explicit sweep dispositions, and combined readiness semantics (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 41 checks | **PASSED** | Pure offline harness validation: authoritative SDK status mappings, actual receipt evidence, exact 13-target manifest matching, discriminated failure tracking, explicit sweep dispositions, combined readiness semantics, and dedicated native transfer verification (`OFFLINE_HARNESS_VALIDATION_PASS`) |
 | Live Integration Launcher (Python) | `deploy/run_python_live_integration.ts` | Orchestration | **DISABLED (Option B)** | Fail-closed guard (`BLOCKED_PYTHON_LIVE_CLEANUP_UNSUPPORTED`); TypeScript harness is authoritative to protect ephemeral funds |
 | Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (gated by fixture publication) |
 | Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **HALTED AT FUNDING** | Preflight passed, challenger funded via on-chain transfer; halted on receipt assertion before scenario deployment |
@@ -353,15 +353,31 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
     - `fixtures/epoch-future-dated.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-future-dated.json` (SHA-256: `3826b32fe95cdc8d2df81436bd96c64fa573b44c0f0f85c30042c3cdef2dd54a`)
     - `fixtures/epoch-ineligible-reserve.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-ineligible-reserve.json` (SHA-256: `77bf69c4cacc091d421ec270248e7e7dbe0b47254227ce2757c18faf79ee1c95`)
     - `fixtures/epoch-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-material-disclaimer.json` (SHA-256: `8695610270fe368398c83ab418752fd4241bf51eb28d073aceee7c9423e03f3b`)
-  - **Code-Bearing Commit**: `0d6888d89d77d97adceb43f05e752459e2bf1795` (platform CRLF schema enforcement, published fixture verification in CI, offline harness publication readiness)
-  - **Public GitHub Actions CI Run**: [Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714) (**PASSED / SUCCESS** across all 21 verification steps)
+  - **Public GitHub Actions CI Run**: [Run 39209611053](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39209611053) (**PASSED / SUCCESS**)
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
-- **Live Harness Implementation**: Complete and offline-tested across 33 tests (15 Python + 18 TypeScript checks).
+- **Live Harness Implementation**: Complete and offline-tested across 41 checks (15 Python in `tests/harness/test_live_harness_offline.py` + 18 core check groups + 23 native-transfer regression checks in `deploy/test_harness_offline.ts`).
 - **Live Validator Scenarios**: Real live validator scenarios have NOT run to completion; halted during funding receipt verification before scenario contract deployment.
-- **Validator Consensus**: Validator consensus on scenario contracts has NOT been demonstrated on Studio Devnet.
-- **Canonical Redeployment**: Canonical redeployment has NOT occurred.
-- **Historical Deployment**: **SUPERSEDED / NONCANONICAL — DO NOT USE** ([0x8C34faA54238b777cDe7e4373B267b0A6d0E4913](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913))
+- **Historical Ephemeral Challenger Incident & Stranded Balance**:
+  - Exact Funding Value: `1,720,000,000,000,173,913 wei` (`1.720000000000173913 GEN`)
+  - Authoritative Current Issuer Balance: `13,421,261,087,749,670,729 wei`
+  - Old Ephemeral Challenger Balance: `1,720,000,000,000,173,913 wei`
+  - JavaScript Precision Explanation: The earlier recorded receipt value ending in `...3824` was an unsafe JavaScript number representation and was not exact (89-wei float rounding difference).
+  - Economic Cleanup State:
+    - Contract Credits: `NONE CREATED`
+    - Contract Cleanup: `NOT REQUIRED`
+    - Ephemeral EOA Cleanup: `FAILED / IMPOSSIBLE AFTER KEY LOSS`
+    - Stranded Studio-dev Test Balance: `1.720000000000173913 GEN`
+    - LIVE_READINESS: `BLOCKED`
+  - Non-Recoverability Statement: The old test balance cannot be recovered without the old ephemeral private key. Per safety rules, the key must not be guessed, fabricated, or reconstructed. That session is not economically clean.
+- **Historical Addresses & Transactions**:
+  - Historical Contract: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
+  - Historical Deployment Tx: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
+  - Faucet Transaction: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d)
+  - Old Challenger Funding Tx: [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21)
+  - Issuer Address: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
+  - Old Challenger Address: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698)
 - **Live Integration Evidence**: Documented in [evidence/live-integration.md](evidence/live-integration.md) with verified explorer links.
+- **Canonical Redeployment**: Canonical redeployment has NOT occurred.
 - **Portal Submission**: No portal submission has occurred.
 - **Authoritative Statement**: **No live validator-consensus result is claimed.**
 

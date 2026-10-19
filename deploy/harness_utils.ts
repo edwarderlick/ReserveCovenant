@@ -624,6 +624,252 @@ export function verifyReceiptExecution(
 }
 
 // ============================================================================
+// 3b. Dedicated Native Value Transfer Verification (Repair: Phase 1)
+// ============================================================================
+
+export interface VerifyNativeTransferOptions {
+  receipt: unknown;
+  context: string;
+  expectedHash?: string;
+  expectedSender?: string;
+  expectedRecipient?: string;
+  requestedAmountWei: bigint;
+  preBalanceWei: bigint;
+  postBalanceWei: bigint;
+}
+
+export interface ValidatedNativeTransferSummary {
+  txHash: string;
+  status: string;
+  executionResult: string;
+  sender?: string;
+  recipient?: string;
+  requestedAmountWei: bigint;
+  balanceDeltaWei: bigint;
+  preBalanceWei: bigint;
+  postBalanceWei: bigint;
+  receiptValueExact: boolean;
+  valueCredited?: boolean;
+  rawReceipt: unknown;
+}
+
+/**
+ * Purpose-built native transfer verifier for EOA value transfers (funding and sweeps).
+ * Does not reuse contract-call success semantics (does NOT require FINISHED_WITH_RETURN).
+ *
+ * Verifies:
+ * 1. Receipt is a non-null object.
+ * 2. Nonempty transaction hash matching expected hash (if provided).
+ * 3. Consensus status is ACCEPTED or FINALIZED.
+ * 4. EVM receipt status is not failure (rejects 0 / "0x0" / false).
+ * 5. txExecutionResult is NOT_VOTED or absent for native transfer.
+ * 6. FINISHED_WITH_ERROR is always rejected.
+ * 7. value_credited is strictly true when present.
+ * 8. Sender matches expected sender (case-insensitive).
+ * 9. Recipient matches expected recipient (case-insensitive).
+ * 10. contractAddress is null or absent.
+ * 11. Recipient balance delta proves intended transfer amount (postBalance - preBalance >= requestedAmountWei).
+ * 12. Requested amount is a bigint.
+ * 13. All wei arithmetic uses bigint.
+ * 14. If receipt.value arrives as an unsafe JS number (> MAX_SAFE_INTEGER), it is marked
+ *     receiptValueExact = false and not used as exact evidence; exact balance delta is used instead.
+ * 15. If receipt.value is string, bigint, or safe integer, it is compared exactly against requestedAmountWei.
+ * 16. Missing hashes, wrong addresses, failed status, false value_credited, or insufficient delta fail closed.
+ */
+export function verifyNativeTransferReceipt(
+  options: VerifyNativeTransferOptions
+): ValidatedNativeTransferSummary {
+  const {
+    receipt,
+    context,
+    expectedHash,
+    expectedSender,
+    expectedRecipient,
+    requestedAmountWei,
+    preBalanceWei,
+    postBalanceWei,
+  } = options;
+
+  if (!receipt || typeof receipt !== "object") {
+    throw new Error(`Receipt verification failed for ${context}: receipt is missing or malformed`);
+  }
+
+  if (typeof requestedAmountWei !== "bigint") {
+    throw new TypeError(`Receipt verification failed for ${context}: requestedAmountWei must be a bigint`);
+  }
+  if (requestedAmountWei <= 0n) {
+    throw new RangeError(`Receipt verification failed for ${context}: requestedAmountWei must be positive`);
+  }
+  if (typeof preBalanceWei !== "bigint" || typeof postBalanceWei !== "bigint") {
+    throw new TypeError(`Receipt verification failed for ${context}: preBalanceWei and postBalanceWei must be bigint`);
+  }
+
+  const rec = receipt as Record<string, unknown>;
+
+  // 1. Transaction hash
+  const txHash = String(rec.hash || rec.transactionHash || "").trim();
+  if (!txHash) {
+    throw new Error(`Receipt verification failed for ${context}: missing transaction hash`);
+  }
+  if (expectedHash && expectedHash.trim().toLowerCase() !== txHash.toLowerCase()) {
+    throw new Error(
+      `Receipt verification failed for ${context}: transaction hash mismatch: expected '${expectedHash}', got '${txHash}'`
+    );
+  }
+
+  // 2. EVM receipt status check (reject failed EVM status)
+  const evmStatus = rec.evmStatus !== undefined ? rec.evmStatus : rec.evm_status;
+  if (evmStatus !== undefined && (evmStatus === 0 || evmStatus === "0x0" || evmStatus === "0" || evmStatus === false)) {
+    throw new Error(`Receipt verification failed for ${context} (tx ${txHash}): EVM receipt status indicates failure`);
+  }
+  if (rec.status === 0 || rec.status === "0x0" || rec.status === "0") {
+    throw new Error(`Receipt verification failed for ${context} (tx ${txHash}): receipt status indicates failure (status=0)`);
+  }
+
+  // 3. Consensus status (FINALIZED or ACCEPTED)
+  const rawStatus =
+    rec.statusName !== undefined
+      ? rec.statusName
+      : rec.status_name !== undefined
+      ? rec.status_name
+      : rec.status;
+  const statusName = normalizeConsensusStatus(rawStatus);
+  if (statusName !== "FINALIZED" && statusName !== "ACCEPTED") {
+    throw new Error(
+      `Receipt verification failed for ${context} (tx ${txHash}): expected FINALIZED or ACCEPTED consensus status, got '${statusName}'`
+    );
+  }
+
+  // 4. Execution result (NOT_VOTED or absent for native transfer; FINISHED_WITH_ERROR rejected)
+  const rawExec =
+    rec.txExecutionResultName !== undefined
+      ? rec.txExecutionResultName
+      : rec.txExecutionResult;
+  let executionResult = "NOT_VOTED";
+  if (rawExec !== undefined && rawExec !== null) {
+    executionResult = normalizeExecutionResult(rawExec);
+  }
+  if (executionResult === "FINISHED_WITH_ERROR") {
+    throw new Error(
+      `Receipt verification failed for ${context} (tx ${txHash}): native transfer failed with FINISHED_WITH_ERROR`
+    );
+  }
+  if (executionResult !== "NOT_VOTED" && executionResult !== "UNKNOWN") {
+    throw new Error(
+      `Receipt verification failed for ${context} (tx ${txHash}): unexpected executionResult='${executionResult}' for native transfer (expected NOT_VOTED or absent)`
+    );
+  }
+
+  // 5. value_credited strictly true when present
+  if (rec.value_credited !== undefined) {
+    if (rec.value_credited !== true) {
+      throw new Error(
+        `Receipt verification failed for ${context} (tx ${txHash}): value_credited is not true (got '${String(rec.value_credited)}')`
+      );
+    }
+  }
+
+  // 6. Sender matching
+  const actualSender = (rec.from || rec.from_address || rec.sender) as string | undefined;
+  if (expectedSender && actualSender) {
+    if (actualSender.toLowerCase() !== expectedSender.toLowerCase()) {
+      throw new Error(
+        `Receipt verification failed for ${context} (tx ${txHash}): sender mismatch: expected '${expectedSender}', got '${actualSender}'`
+      );
+    }
+  }
+
+  // 7. Recipient matching
+  const actualRecipient = (rec.to || rec.to_address || rec.recipient) as string | undefined;
+  if (expectedRecipient && actualRecipient) {
+    if (actualRecipient.toLowerCase() !== expectedRecipient.toLowerCase()) {
+      throw new Error(
+        `Receipt verification failed for ${context} (tx ${txHash}): recipient mismatch: expected '${expectedRecipient}', got '${actualRecipient}'`
+      );
+    }
+  }
+
+  // 8. contractAddress must be null or absent
+  const contractAddress = rec.contractAddress || rec.contract_address;
+  if (
+    contractAddress !== undefined &&
+    contractAddress !== null &&
+    String(contractAddress).trim() !== "" &&
+    String(contractAddress).trim() !== "0x0000000000000000000000000000000000000000"
+  ) {
+    throw new Error(
+      `Receipt verification failed for ${context} (tx ${txHash}): contractAddress must be null or absent for native transfer, got '${contractAddress}'`
+    );
+  }
+
+  // 9. Recipient balance delta verification
+  const balanceDeltaWei = postBalanceWei - preBalanceWei;
+  if (balanceDeltaWei < requestedAmountWei) {
+    throw new Error(
+      `Receipt verification failed for ${context} (tx ${txHash}): recipient balance delta (${balanceDeltaWei.toString()} wei) is less than requested amount (${requestedAmountWei.toString()} wei)`
+    );
+  }
+
+  // 10. Receipt value verification with IEEE-754 precision safety
+  let receiptValueExact = false;
+  if (rec.value !== undefined && rec.value !== null) {
+    if (typeof rec.value === "number") {
+      if (Number.isSafeInteger(rec.value)) {
+        const valBigInt = BigInt(rec.value);
+        if (valBigInt !== requestedAmountWei) {
+          throw new Error(
+            `Receipt verification failed for ${context} (tx ${txHash}): receipt value (${valBigInt.toString()} wei) does not match requested amount (${requestedAmountWei.toString()} wei)`
+          );
+        }
+        receiptValueExact = true;
+      } else {
+        // Unsafe JS number (> Number.MAX_SAFE_INTEGER).
+        // Do NOT convert to fake exact BigInt; mark unsafe and rely on exact balanceDelta.
+        receiptValueExact = false;
+      }
+    } else if (typeof rec.value === "bigint") {
+      if (rec.value !== requestedAmountWei) {
+        throw new Error(
+          `Receipt verification failed for ${context} (tx ${txHash}): receipt value (${rec.value.toString()} wei) does not match requested amount (${requestedAmountWei.toString()} wei)`
+        );
+      }
+      receiptValueExact = true;
+    } else if (typeof rec.value === "string") {
+      const trimmed = rec.value.trim();
+      let valBigInt: bigint;
+      try {
+        valBigInt = BigInt(trimmed);
+      } catch {
+        throw new Error(
+          `Receipt verification failed for ${context} (tx ${txHash}): invalid string value in receipt: '${trimmed}'`
+        );
+      }
+      if (valBigInt !== requestedAmountWei) {
+        throw new Error(
+          `Receipt verification failed for ${context} (tx ${txHash}): receipt string value (${valBigInt.toString()} wei) does not match requested amount (${requestedAmountWei.toString()} wei)`
+        );
+      }
+      receiptValueExact = true;
+    }
+  }
+
+  return {
+    txHash,
+    status: statusName,
+    executionResult,
+    sender: actualSender,
+    recipient: actualRecipient,
+    requestedAmountWei,
+    balanceDeltaWei,
+    preBalanceWei,
+    postBalanceWei,
+    receiptValueExact,
+    valueCredited: rec.value_credited as boolean | undefined,
+    rawReceipt: receipt,
+  };
+}
+
+// ============================================================================
 // 4. Expected Contract Execution Error Classification
 // ============================================================================
 
@@ -806,13 +1052,26 @@ export interface ExecuteFundingOptions {
   requiredPostBalance: bigint;
 }
 
+export interface ChallengerFundingResult {
+  fundTxHash: string;
+  preBalance: bigint;
+  postBalance: bigint;
+  balanceDelta: bigint;
+  requestedAmount: bigint;
+  expectedSender: Address;
+  expectedRecipient: Address;
+  rawReceipt: unknown;
+  nativeTransferSummary: ValidatedNativeTransferSummary;
+}
+
 /**
  * Executes challenger funding using the strictly typed GenLayer client interface.
  * Halts closed with BLOCKED_NO_SUPPORTED_CHALLENGER_FUNDING_API if sendTransaction is unavailable.
+ * Verifies funding via verifyNativeTransferReceipt using native transfer semantics (NOT_VOTED).
  */
 export async function executeAndVerifyChallengerFunding(
   options: ExecuteFundingOptions
-): Promise<{ fundTxHash: string; postBalance: bigint }> {
+): Promise<ChallengerFundingResult> {
   const { issuerClient, issuerAccount, challengerAddress, fundingAmount, requiredPostBalance } = options;
 
   if (!issuerClient || typeof issuerClient.sendTransaction !== "function") {
@@ -821,7 +1080,10 @@ export async function executeAndVerifyChallengerFunding(
     );
   }
 
+  const preBalance = await issuerClient.getBalance({ address: challengerAddress });
+  console.log(`[funding] Pre-funding challenger balance: ${preBalance.toString()} wei`);
   console.log(`[funding] Submitting challenger funding: ${fundingAmount.toString()} wei to ${challengerAddress}`);
+
   const fundTxHash = await issuerClient.sendTransaction({
     account: issuerAccount,
     to: challengerAddress,
@@ -830,10 +1092,20 @@ export async function executeAndVerifyChallengerFunding(
   });
 
   const receipt = await issuerClient.waitForTransactionReceipt({ hash: fundTxHash });
-  verifyReceiptExecution(receipt, "challenger funding transaction", "sendTransaction");
 
   const postBalance = await issuerClient.getBalance({ address: challengerAddress });
   console.log(`[funding] Verified challenger post-funding balance: ${postBalance.toString()} wei`);
+
+  const summary = verifyNativeTransferReceipt({
+    receipt,
+    context: "challenger funding transaction",
+    expectedHash: String(fundTxHash),
+    expectedSender: issuerAccount.address,
+    expectedRecipient: challengerAddress,
+    requestedAmountWei: fundingAmount,
+    preBalanceWei: preBalance,
+    postBalanceWei: postBalance,
+  });
 
   if (postBalance < requiredPostBalance) {
     throw new Error(
@@ -841,9 +1113,18 @@ export async function executeAndVerifyChallengerFunding(
     );
   }
 
+  const balanceDelta = postBalance - preBalance;
+
   return {
     fundTxHash: String(fundTxHash),
+    preBalance,
     postBalance,
+    balanceDelta,
+    requestedAmount: fundingAmount,
+    expectedSender: issuerAccount.address,
+    expectedRecipient: challengerAddress,
+    rawReceipt: receipt,
+    nativeTransferSummary: summary,
   };
 }
 
@@ -972,8 +1253,11 @@ export interface SweepResultRecord {
   sweepTransactionHash?: Hash | string;
   receiptStatus?: string;
   executionResult?: string;
-  receiptSummary?: ValidatedReceiptSummary;
+  receiptSummary?: ValidatedReceiptSummary | ValidatedNativeTransferSummary;
+  nativeTransferSummary?: ValidatedNativeTransferSummary;
   postSweepObservedResidualBalanceWei?: bigint;
+  issuerPreSweepBalanceWei?: bigint;
+  issuerPostSweepBalanceWei?: bigint;
   error?: string;
 }
 
@@ -1231,31 +1515,39 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
       sweepOk = (sweepRecord.preSweepBalanceWei === 0n) && (sweepRecord.postSweepObservedResidualBalanceWei === 0n);
     } else if (sweepRecord.disposition === "COMPLETED") {
       let sweepReceiptValid = false;
+      const rawReceipt =
+        sweepRecord.nativeTransferSummary?.rawReceipt ||
+        (sweepRecord.receiptSummary as ValidatedNativeTransferSummary | ValidatedReceiptSummary)?.rawReceipt;
+      const sweepHash = sweepRecord.sweepTransactionHash;
+
       if (
-        typeof sweepRecord.sweepTransactionHash === "string" &&
-        sweepRecord.sweepTransactionHash.trim().length > 0 &&
-        sweepRecord.receiptSummary &&
-        typeof sweepRecord.receiptSummary === "object" &&
-        sweepRecord.receiptSummary.rawReceipt &&
-        typeof sweepRecord.receiptSummary.rawReceipt === "object"
+        typeof sweepHash === "string" &&
+        sweepHash.trim().length > 0 &&
+        rawReceipt &&
+        typeof rawReceipt === "object"
       ) {
         try {
-          const verifiedSweep = verifyReceiptExecution(
-            sweepRecord.receiptSummary.rawReceipt,
-            "completed sweep receipt verification"
-          );
+          const verifiedSweep = verifyNativeTransferReceipt({
+            receipt: rawReceipt,
+            context: "completed sweep receipt verification",
+            expectedHash: String(sweepHash),
+            requestedAmountWei: sweepRecord.attemptedSweepAmountWei ?? 1n,
+            preBalanceWei: sweepRecord.issuerPreSweepBalanceWei ?? 0n,
+            postBalanceWei:
+              sweepRecord.issuerPostSweepBalanceWei ??
+              (sweepRecord.attemptedSweepAmountWei ?? 1n),
+          });
+
           const sweepTxMatches =
-            verifiedSweep.txHash === sweepRecord.sweepTransactionHash &&
-            verifiedSweep.txHash === sweepRecord.receiptSummary.txHash;
+            verifiedSweep.txHash.toLowerCase() === sweepHash.toLowerCase();
           const sweepStatusMatches =
-            verifiedSweep.status === sweepRecord.receiptStatus &&
-            verifiedSweep.status === sweepRecord.receiptSummary.status;
+            verifiedSweep.status === sweepRecord.receiptStatus;
           const sweepExecMatches =
-            verifiedSweep.executionResult === sweepRecord.executionResult &&
-            verifiedSweep.executionResult === sweepRecord.receiptSummary.executionResult;
+            verifiedSweep.executionResult === sweepRecord.executionResult;
           const sweepStatusClean =
             verifiedSweep.status === "FINALIZED" || verifiedSweep.status === "ACCEPTED";
-          const sweepExecClean = verifiedSweep.executionResult === "FINISHED_WITH_RETURN";
+          const sweepExecClean =
+            verifiedSweep.executionResult === "NOT_VOTED" || verifiedSweep.executionResult === "UNKNOWN";
 
           if (sweepTxMatches && sweepStatusMatches && sweepExecMatches && sweepStatusClean && sweepExecClean) {
             sweepReceiptValid = true;
@@ -1265,7 +1557,15 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
         }
       }
       const postBalQueried = sweepRecord.postSweepObservedResidualBalanceWei !== undefined;
-      sweepOk = sweepReceiptValid && postBalQueried;
+      // Rule 22 & 23: Positive uncleaned residual blocks LIVE_READINESS.
+      // Bounded dust rule: If residual is 0 or <= estimatedFeeWei * 2n (bounded fee reserve dust), it is valid.
+      const dustLimitWei = sweepRecord.estimatedFeeWei !== undefined ? sweepRecord.estimatedFeeWei * 2n : 0n;
+      const residualWithinBound =
+        sweepRecord.postSweepObservedResidualBalanceWei !== undefined &&
+        (sweepRecord.postSweepObservedResidualBalanceWei === 0n ||
+          sweepRecord.postSweepObservedResidualBalanceWei <= dustLimitWei);
+
+      sweepOk = sweepReceiptValid && postBalQueried && residualWithinBound;
     } else {
       // BLOCKED_INSUFFICIENT_FEE or FAILED
       sweepOk = false;

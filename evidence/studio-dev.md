@@ -355,15 +355,30 @@ get_accounting():
 - **Immutable Hashes**:
   - `contracts/reservecovenant.py`: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
   - `deploy/schema.json`: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
-- **Live Harness Implementation**: Complete and offline-tested across 33 tests (15 Python + 18 TypeScript checks).
+- **Live Harness Implementation**: Complete and offline-tested across 41 checks (15 Python in `tests/harness/test_live_harness_offline.py` + 18 core check groups + 23 native-transfer regression checks in `deploy/test_harness_offline.ts`).
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0). Commit-pinned at `COMMIT_B` (`698b675e5b637f263f841ac148e1718f3c566024`).
 - **Live Validator Scenarios**: Real live validator scenarios have NOT run to completion; halted during funding receipt verification before scenario contract deployment.
-- **Validator Consensus**: Validator consensus on scenario contracts has NOT been demonstrated on Studio Devnet.
-- **Canonical Redeployment**: Canonical redeployment has NOT occurred.
-- **Historical Deployment**: **SUPERSEDED / NONCANONICAL — DO NOT USE** ([0x8C34faA54238b777cDe7e4373B267b0A6d0E4913](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913))
-- **Historical Deployment Tx**: [0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
+- **Historical Ephemeral Challenger Incident & Stranded Balance**:
+  - Exact Funding Value: `1,720,000,000,000,173,913 wei` (`1.720000000000173913 GEN`)
+  - Authoritative Current Issuer Balance: `13,421,261,087,749,670,729 wei`
+  - Old Ephemeral Challenger Balance: `1,720,000,000,000,173,913 wei`
+  - JavaScript Precision Explanation: The earlier recorded receipt value ending in `...3824` was an unsafe JavaScript number representation and was not exact (89-wei float rounding difference).
+  - Economic Cleanup State:
+    - Contract Credits: `NONE CREATED`
+    - Contract Cleanup: `NOT REQUIRED`
+    - Ephemeral EOA Cleanup: `FAILED / IMPOSSIBLE AFTER KEY LOSS`
+    - Stranded Studio-dev Test Balance: `1.720000000000173913 GEN`
+    - LIVE_READINESS: `BLOCKED`
+  - Non-Recoverability Statement: The old test balance cannot be recovered without the old ephemeral private key. Per safety rules, the key must not be guessed, fabricated, or reconstructed. That session is not economically clean.
+- **Historical Addresses & Transactions**:
+  - Historical Contract: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
+  - Historical Deployment Tx: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
+  - Faucet Transaction: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d)
+  - Old Challenger Funding Tx: [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21)
+  - Issuer Address: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
+  - Old Challenger Address: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698)
 - **Live Integration Evidence**: Documented in [`evidence/live-integration.md`](live-integration.md) with verified explorer links.
-- **GitHub Actions Status**: **GREEN / VERIFIED** ([Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714), [Run 39204332018](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39204332018))
+- **GitHub Actions Status**: **GREEN / VERIFIED** ([Run 39209611053](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39209611053))
 - **Portal Submission**: No portal submission has occurred.
 - **Authoritative Statement**: **No live validator-consensus result is claimed.**
 
