@@ -408,7 +408,7 @@ ReserveCovenant/
 │   ├── prepare_public_fixtures.ts      # Two-commit fixture publication tool (check & prepublish)
 │   ├── run_canary.ts                   # Disposable canary test
 │   ├── run_live_integration.ts        # Guarded TypeScript live harness (distinct signers)
-│   ├── run_python_live_integration.ts  # Autonomous live launcher for Python live suite
+│   ├── run_python_live_integration.ts  # Fail-closed Python live preflight gate disabled under Option B
 │   ├── schema.json                     # ABI schema (15 methods)
 │   ├── signer.ts                       # OS keychain autonomous signer
 │   ├── smoke_read.ts                   # Live contract view reader
@@ -433,7 +433,7 @@ ReserveCovenant/
 │   │   ├── test_reservecovenant.py
 │   │   └── test_signer_resolver.py
 │   ├── harness/
-│   │   └── test_live_harness_offline.py# Offline harness tests (10 tests)
+│   │   └── test_live_harness_offline.py# Offline harness tests (15 tests)
 │   └── integration/
 │       ├── fixture_url_validator.py
 │       └── test_reservecovenant_live.py # Live integration suite (8 scenarios)
