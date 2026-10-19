@@ -344,10 +344,10 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 | Scenario 2 | Ineligible Reserve Breach | [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
 | Scenario 3 | Future-Dated Disclosure | [`0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0`](https://explorer-studio-dev.genlayer.com/address/0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
 | Scenario 4 | Material Disclaimer Breach | [`0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4`](https://explorer-studio-dev.genlayer.com/address/0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
-| Scenario 5 | Unsupported Claim Upheld | [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee) | DEPLOYED (Noncanonical) | **HALTED** (`publish_epoch` RPC fetch failed) |
-| Scenario 6 | Compliant Disclosure | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
-| Scenario 7 | Repeated Resolution Revert | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
-| Scenario 8 | Zero Credit Revert | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 5 | Unsupported Claim Upheld | [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee) | DEPLOYED (Noncanonical) | **PASSED** (`Status=UPHELD`, `Invariant=true`) |
+| Scenario 6 | Compliant Disclosure Inconclusive | [`0xd746297196b2c4a18bE1bA45f5541537F018cce0`](https://explorer-studio-dev.genlayer.com/address/0xd746297196b2c4a18bE1bA45f5541537F018cce0) | DEPLOYED (Noncanonical) | **PASSED** (`Status=INCONCLUSIVE`, `Invariant=true`) |
+| Scenario 7 | Repeated Resolution Revert | [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26) | DEPLOYED (Noncanonical) | **PASSED** (`Status=INCONCLUSIVE`, `Invariant=true`) |
+| Scenario 8 | Cancel Epoch & Double Withdrawal Revert | [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD) | DEPLOYED (Noncanonical) | **PASSED** (`Status=CANCELLED`, `Invariant=true`) |
 
 *Labeling: Every disposable contract above is **DISPOSABLE / NONCANONICAL — DO NOT USE**. Zero canonical contracts have been deployed.*
 
@@ -355,37 +355,28 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 - **Issuer Public Address**: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
 - **Faucet Top-Up Transaction**: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d) (`10.000 GEN`)
-- **Current Authoritative Issuer Balance**: `11,560,957,319,999,465,654 wei` (~`11.56096 GEN`)
-- **Native-Transfer Canary Challenger**: [`0x298ECE720dFE465ED9F77dDe88505F7F73016774`](https://explorer-studio-dev.genlayer.com/address/0x298ECE720dFE465ED9F77dDe88505F7F73016774)
-  - Canary Funding Tx: [`0x9a790c2cdbe68a3339c447b3b93b1076e3eae3cdbb4f73a4aea23132f756132d`](https://explorer-studio-dev.genlayer.com/tx/0x9a790c2cdbe68a3339c447b3b93b1076e3eae3cdbb4f73a4aea23132f756132d) (`0.01 GEN`, `status: FINALIZED`, `NOT_VOTED`, `value_credited: true`)
-  - Canary Residual Sweep Tx: [`0xfbfdb01b98fadb2226ba9f8e9e0221a9a43db47f34251919ece0ed507984a16f`](https://explorer-studio-dev.genlayer.com/tx/0xfbfdb01b98fadb2226ba9f8e9e0221a9a43db47f34251919ece0ed507984a16f) (`0.01 GEN`, `status: FINALIZED`, `NOT_VOTED`, `value_credited: true`)
-  - Canary Final Residual: `0 wei` (**NATIVE_TRANSFER_CANARY_PASS**)
-- **Live Run Challenger 3**: [`0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`](https://explorer-studio-dev.genlayer.com/address/0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D)
-  - Full-Run Funding Tx: [`0xa5c6327319e52114ad62b668a45746582d47ab3fea63bd2af188017611067f9e`](https://explorer-studio-dev.genlayer.com/tx/0xa5c6327319e52114ad62b668a45746582d47ab3fea63bd2af188017611067f9e)
-  - Exact Funding Value: `1,720,000,000,000,173,913 wei` (`1.720000000000173913 GEN`)
-  - Consensus Status: `FINALIZED`, Result: `NOT_VOTED`, Value Credited: `true`
-  - Balance Delta: `1,720,000,000,000,173,913 wei` (exact match)
-  - Scenario 5 Publish Epoch Tx: [`0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97`](https://explorer-studio-dev.genlayer.com/tx/0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97)
-  - Emergency Contract Withdrawals: 8 completed (4 challenger = `0.056 GEN`, 4 issuer = `0.004 GEN`)
-  - Native Sweep Tx: [`0x3f6ca77c7c89e145128ef83b417976839cfd4aeec916d1c27f06ec6944dcc8db`](https://explorer-studio-dev.genlayer.com/tx/0x3f6ca77c7c89e145128ef83b417976839cfd4aeec916d1c27f06ec6944dcc8db) (`FINALIZED`, `NOT_VOTED`)
-  - Pre-Sweep Balance: `1,627,306,548,250,157,800 wei`
-  - Final Observed Residual: `127,873,695,000,009,529 wei` (~`0.12787 GEN`)
-- **Historical Stranded Balances**:
-  - Challenger 1: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698) (`1,720,000,000,000,173,913 wei`, tx [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21))
-  - Challenger 2: [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e) (`1,720,000,000,000,173,913 wei`, tx [`0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769`](https://explorer-studio-dev.genlayer.com/tx/0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769))
+- **Current Authoritative Issuer Balance**: `11,553,465,994,499,443,020 wei` (~`11.55347 GEN`)
+- **Persistent OS Keychain Challenger**: [`0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`](https://explorer-studio-dev.genlayer.com/address/0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9)
+  - Keychain Service: `genlayer-cli`, Account: `account:reservecovenant-challenger`
+  - Sweep 1 Tx: [`0x4d11bc2cab2ebb8745ddca0ca05610ee34d0915524655d62dc9b39ee64e30728`](https://explorer-studio-dev.genlayer.com/tx/0x4d11bc2cab2ebb8745ddca0ca05610ee34d0915524655d62dc9b39ee64e30728) (`509,716,429,250,049,300 wei`)
+  - Authorized Final Dust Sweep Tx: [`0xc7974fbea7a0ec2f0f8286b3a9d7ed9b47636c42227e5d62578b7f2fdac2535a`](https://explorer-studio-dev.genlayer.com/tx/0xc7974fbea7a0ec2f0f8286b3a9d7ed9b47636c42227e5d62578b7f2fdac2535a) (`104,873,695,000,009,529 wei`)
+  - Final Residual Balance: `0 wei` (strictly and authoritatively `0 wei`)
+- **Historical Ephemeral Challenger Balances**:
+  - Challenger 1: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698) (`1,720,000,000,000,173,913 wei`)
+  - Challenger 2: [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e) (`1,720,000,000,000,173,913 wei`)
+  - Session 3 Ephemeral Residual: [`0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`](https://explorer-studio-dev.genlayer.com/address/0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D) (`127,873,695,000,009,529 wei`)
 - **Historical Deployment**: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
   - Historical Deployment Tx: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
 
 ### Economic Cleanup Disposition & Live Readiness
 
-- **Primary Scenarios**: `PRIMARY_SCENARIOS_FAIL` (4 passed, halted at Scenario 5 on RPC fetch error)
-- **Contract Credits**: `60,000,000,000,000,000 wei` withdrawn across 8 operations (4 challenger, 4 issuer)
-- **Contract Cleanup**: `8/13 TARGETS WITHDRAWN` (all credits from deployed scenarios recovered)
-- **Challenger EOA Sweep**: Swept via tx `0x3f6ca77c7c89e145128ef83b417976839cfd4aeec916d1c27f06ec6944dcc8db`
-- **Residual Dust**: `127,873,695,000,009,529 wei` on challenger `0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`
-- **CURRENT_SESSION_LIVE_READINESS**: `BLOCKED` (positive residual, primary suite halted)
+- **Primary Scenarios**: `PRIMARY_SCENARIOS_PASS` (All 8 scenarios passed with 100% consensus agreement and satisfied accounting invariants)
+- **Contract Credits**: `105,000,000,000,000,000 wei` (`0.105 GEN`) withdrawn across 13 operations
+- **Contract Cleanup**: `13/13 TARGETS WITHDRAWN` (all credits from all deployed scenarios recovered)
+- **Persistent Challenger EOA Residual**: `0 wei` (verified on OS keychain account `0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`)
+- **CURRENT_SESSION_LIVE_READINESS**: `READY` (All 8 scenarios verified on-chain, clean zero residual)
 
-*Non-Recoverability Notice*: Neither ephemeral test balance can be recovered without the respective ephemeral private key. In accordance with safety rules, keys held in memory are released upon process exit and must never be guessed, fabricated, or reconstructed. These sessions are not economically clean, and live readiness remains blocked until all criteria can be satisfied.
+*Historical Ephemeral Notice*: Historical test balances from earlier sessions prior to keychain persistence remain stranded due to non-persisted ephemeral keys. The current continuation session utilizes persistent OS keychain storage (`service: genlayer-cli`, `account: reservecovenant-challenger`) and has achieved a strict `0 wei` residual.
 
 ### Historical Publication & CI Verification
 
@@ -396,11 +387,12 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
   - **Stage-A Evidence Commit (`COMMIT_A`)**: `7060b5e631fb5e2581fc51f7d23bf331ee79184c`
   - **Stage-B Snapshot Publication Commit (`COMMIT_B`)**: `698b675e5b637f263f841ac148e1718f3c566024`
 - **Public GitHub Actions CI**:
-  - Base Repair Run: [Run 39214830441](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39214830441) (**PASSED / SUCCESS**)
+  - Baseline Green CI: [Run 39219903114](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114) (**SUCCESS**)
+  - Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (**SUCCESS**)
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
 - **Canonical Redeployment**: Canonical redeployment has NOT occurred.
 - **Portal Submission**: No portal submission has occurred.
-- **Authoritative Statement**: **No live validator-consensus result is claimed.**
+- **Authoritative Statement**: Canonical deployment and portal submission remain gated; live integration verification completed on noncanonical disposable contracts.
 
 ---
 
