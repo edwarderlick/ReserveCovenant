@@ -340,14 +340,14 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 | Scenario | Purpose | Disposable Contract | Deployment Status | Result |
 |---|---|---|---|---|
-| Scenario 1 | Coverage Shortfall Breach | [`0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf`](https://explorer-studio-dev.genlayer.com/address/0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
-| Scenario 2 | Ineligible Reserve Breach | [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
-| Scenario 3 | Future-Dated Disclosure | [`0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0`](https://explorer-studio-dev.genlayer.com/address/0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
-| Scenario 4 | Material Disclaimer Breach | [`0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4`](https://explorer-studio-dev.genlayer.com/address/0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4) | DEPLOYED (Noncanonical) | **PASSED** (`Status=BREACHED`, `Invariant=true`) |
-| Scenario 5 | Unsupported Claim Upheld | [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee) | DEPLOYED (Noncanonical) | **PASSED** (`Status=UPHELD`, `Invariant=true`) |
-| Scenario 6 | Compliant Disclosure Inconclusive | [`0xd746297196b2c4a18bE1bA45f5541537F018cce0`](https://explorer-studio-dev.genlayer.com/address/0xd746297196b2c4a18bE1bA45f5541537F018cce0) | DEPLOYED (Noncanonical) | **PASSED** (`Status=INCONCLUSIVE`, `Invariant=true`) |
-| Scenario 7 | Repeated Resolution Revert | [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26) | DEPLOYED (Noncanonical) | **PASSED** (`Status=INCONCLUSIVE`, `Invariant=true`) |
-| Scenario 8 | Cancel Epoch & Double Withdrawal Revert | [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD) | DEPLOYED (Noncanonical) | **PASSED** (`Status=CANCELLED`, `Invariant=true`) |
+| Scenario 1 | Coverage Shortfall Breach | [`0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf`](https://explorer-studio-dev.genlayer.com/address/0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`) |
+| Scenario 2 | Ineligible Reserve Breach | [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`) |
+| Scenario 3 | Future-Dated Disclosure | [`0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0`](https://explorer-studio-dev.genlayer.com/address/0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`) |
+| Scenario 4 | Material Disclaimer Breach | [`0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4`](https://explorer-studio-dev.genlayer.com/address/0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`) |
+| Scenario 5 | Unsupported Claim Upheld | [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `UPHELD`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`) |
+| Scenario 6 | Compliant Disclosure Inconclusive | [`0xd746297196b2c4a18bE1bA45f5541537F018cce0`](https://explorer-studio-dev.genlayer.com/address/0xd746297196b2c4a18bE1bA45f5541537F018cce0) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `INCONCLUSIVE`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`) |
+| Scenario 7 | Repeated Resolution Revert | [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `INCONCLUSIVE`, consensus: `FINALIZED / MAJORITY_AGREE`, repeated resolve revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`) |
+| Scenario 8 | Cancel Epoch & Double Withdrawal Revert | [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD) | DEPLOYED (Noncanonical) | **PASSED** (Final Contract State: `CANCELLED`, consensus: `FINALIZED / MAJORITY_AGREE`, double withdrawal revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`) |
 
 *Labeling: Every disposable contract above is **DISPOSABLE / NONCANONICAL — DO NOT USE**. Zero canonical contracts have been deployed.*
 
@@ -370,13 +370,15 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 ### Economic Cleanup Disposition & Live Readiness
 
-- **Primary Scenarios**: `PRIMARY_SCENARIOS_PASS` (All 8 scenarios passed with 100% consensus agreement and satisfied accounting invariants)
+- **Primary Scenarios**: `PRIMARY_SCENARIOS_PASS` (All eight scenario workflows reached their intended terminal contract states with satisfied accounting invariants. The cited intelligent-contract writes reached `FINALIZED / MAJORITY_AGREE`. The two expected negative-path transactions reached `FINALIZED / FINISHED_WITH_ERROR / MAJORITY_AGREE`. Native transfers reached `FINALIZED / NOT_VOTED` with `value_credited=true`.)
 - **Contract Credits**: `105,000,000,000,000,000 wei` (`0.105 GEN`) withdrawn across 13 operations
-- **Contract Cleanup**: `13/13 TARGETS WITHDRAWN` (all credits from all deployed scenarios recovered)
+- **Contract Cleanup**: `13/13 TARGETS WITHDRAWN` (all credits from all deployed scenarios recovered; confirmed on-chain via `get_accounting()`)
 - **Persistent Challenger EOA Residual**: `0 wei` (verified on OS keychain account `0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`)
-- **CURRENT_SESSION_LIVE_READINESS**: `READY` (All 8 scenarios verified on-chain, clean zero residual)
+- **CURRENT_SESSION_LIVE_READINESS**: Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending.
 
 *Historical Ephemeral Notice*: Historical test balances from earlier sessions prior to keychain persistence remain stranded due to non-persisted ephemeral keys. The current continuation session utilizes persistent OS keychain storage (`service: genlayer-cli`, `account: reservecovenant-challenger`) and has achieved a strict `0 wei` residual.
+
+*Historical Transaction Retrieval Notice*: All eight disposable contract addresses and transaction hashes cited in this evidence record were committed from live on-chain executions. While current on-chain state reads confirm that all eight disposable contracts have zero balance, zero credits, zero locked bonds, and satisfied invariants, retrieval of older individual transaction receipts from the public Studio-dev RPC endpoint may be subject to network retention and indexing policies. Committed transaction hashes are preserved without alteration or fabrication.
 
 ### Historical Publication & CI Verification
 
@@ -386,13 +388,16 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 - **Two-Commit Fixture Publication Flow**:
   - **Stage-A Evidence Commit (`COMMIT_A`)**: `7060b5e631fb5e2581fc51f7d23bf331ee79184c`
   - **Stage-B Snapshot Publication Commit (`COMMIT_B`)**: `698b675e5b637f263f841ac148e1718f3c566024`
-- **Public GitHub Actions CI**:
-  - Baseline Green CI: [Run 39219903114](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114) (**SUCCESS**)
-  - Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (**SUCCESS**)
+- **Public GitHub Actions CI & Commits**:
+  - Baseline Green CI: [Run 39219903114](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114) (Commit [`48eef4e021c6c1c75a01144f0bec555b084a8b11`](https://github.com/edwarderlick/ReserveCovenant/commit/48eef4e021c6c1c75a01144f0bec555b084a8b11))
+  - Code-Bearing Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (Commit [`7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`](https://github.com/edwarderlick/ReserveCovenant/commit/7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901))
+  - Prior Evidence-Documentation Green CI: [Run 39233275830](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830) (Commit [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b))
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
-- **Canonical Redeployment**: Canonical redeployment has NOT occurred.
-- **Portal Submission**: No portal submission has occurred.
-- **Authoritative Statement**: Canonical deployment and portal submission remain gated; live integration verification completed on noncanonical disposable contracts.
+- **Authoritative Lifecycle Boundary**:
+  - Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending.
+  - Canonical Deployment: NOT PERFORMED
+  - Canonical Deployed-Source Parity: NOT YET PROVEN
+  - GenLayer Portal Submission: NOT PERFORMED
 
 ---
 

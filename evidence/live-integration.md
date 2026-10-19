@@ -6,10 +6,12 @@
 - **Chain ID**: `61997`
 - **RPC Endpoint**: `https://studio-dev.genlayer.com/api`
 - **Explorer Base**: `https://explorer-studio-dev.genlayer.com`
-- **Baseline Git Commit**: `48eef4e021c6c1c75a01144f0bec555b084a8b11`
-- **Baseline Green CI Run**: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114)
-- **Continuation Git Commit**: `7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`
-- **Continuation Green CI Run**: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987)
+- **Baseline Git Commit**: [`48eef4e021c6c1c75a01144f0bec555b084a8b11`](https://github.com/edwarderlick/ReserveCovenant/commit/48eef4e021c6c1c75a01144f0bec555b084a8b11)
+  - Baseline Green CI Run: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114)
+- **Code-Bearing Continuation Commit**: [`7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`](https://github.com/edwarderlick/ReserveCovenant/commit/7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901)
+  - Code-Bearing Continuation Green CI Run: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987)
+- **Prior Evidence-Documentation Commit**: [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b)
+  - Prior Final Documentation Green CI Run: [`https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830`](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830)
 - **Stage-A Evidence Commit (`COMMIT_A`)**: `7060b5e631fb5e2581fc51f7d23bf331ee79184c`
 - **Stage-B Snapshot Commit (`COMMIT_B`)**: `698b675e5b637f263f841ac148e1718f3c566024`
 - **Authoritative Fixture Base**: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures`
@@ -59,7 +61,7 @@
 
 ## 3. Complete Primary Scenarios (1–8) Execution Record
 
-All 8 primary scenarios have completed on Studio Devnet with 100% invariant satisfaction (`invariant_satisfied: true`):
+All eight scenario workflows reached their intended terminal contract states with satisfied accounting invariants. The cited intelligent-contract writes reached `FINALIZED / MAJORITY_AGREE`. The two expected negative-path transactions reached `FINALIZED / FINISHED_WITH_ERROR / MAJORITY_AGREE`. Native transfers reached `FINALIZED / NOT_VOTED` with `value_credited=true`.
 
 ### Scenario 1: Coverage Shortfall Breach
 - **Contract Address**: [`0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf`](https://explorer-studio-dev.genlayer.com/address/0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf)
@@ -67,8 +69,9 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Publish Epoch Transaction**: [`0xd0d04c10a4005b634ddf483c0f4f9f7d2bf64a3d5377f3747761ceebcf52ec74`](https://explorer-studio-dev.genlayer.com/tx/0xd0d04c10a4005b634ddf483c0f4f9f7d2bf64a3d5377f3747761ceebcf52ec74)
 - **Open Challenge Transaction**: [`0xccb077aee29e710ff5c4a5293297a7604fdbfa5c5eeec86f0ea9ec1004e229bc`](https://explorer-studio-dev.genlayer.com/tx/0xccb077aee29e710ff5c4a5293297a7604fdbfa5c5eeec86f0ea9ec1004e229bc)
 - **Resolve Challenge Transaction**: [`0xdc17a5b6d5f7ca10df6aee13175c5e62f40fe3ff4f52636f827a480d1e57c6b7`](https://explorer-studio-dev.genlayer.com/tx/0xdc17a5b6d5f7ca10df6aee13175c5e62f40fe3ff4f52636f827a480d1e57c6b7)
-- **Final Consensus Status**: `BREACHED`
-- **Accounting Invariant**: `true`
+- **Final Contract State**: `BREACHED`
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ### Scenario 2: Ineligible Reserve Breach
 - **Contract Address**: [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA)
@@ -76,8 +79,9 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Publish Epoch Transaction**: [`0xafae02a246830500b46fa4360e2ce1c9eb2a36b94bfd060f64be87d3a042e616`](https://explorer-studio-dev.genlayer.com/tx/0xafae02a246830500b46fa4360e2ce1c9eb2a36b94bfd060f64be87d3a042e616)
 - **Open Challenge Transaction**: [`0xb90ee10be01955fb4ea375d81232840cfeb7628841a1ba762fc385aa68a8dcba`](https://explorer-studio-dev.genlayer.com/tx/0xb90ee10be01955fb4ea375d81232840cfeb7628841a1ba762fc385aa68a8dcba)
 - **Resolve Challenge Transaction**: [`0x7a3036a7153a80fcfebc979d501099684525ea285f2066d7e2311451fef06df0`](https://explorer-studio-dev.genlayer.com/tx/0x7a3036a7153a80fcfebc979d501099684525ea285f2066d7e2311451fef06df0)
-- **Final Consensus Status**: `BREACHED`
-- **Accounting Invariant**: `true`
+- **Final Contract State**: `BREACHED`
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ### Scenario 3: Future-Dated Stale Report
 - **Contract Address**: [`0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0`](https://explorer-studio-dev.genlayer.com/address/0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0)
@@ -85,8 +89,9 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Publish Epoch Transaction**: [`0x140687f8f9ea32791cc30fa1400e932b6bcfa2eb1a25ec617957771746f39386`](https://explorer-studio-dev.genlayer.com/tx/0x140687f8f9ea32791cc30fa1400e932b6bcfa2eb1a25ec617957771746f39386)
 - **Open Challenge Transaction**: [`0x7fb6e133d256fc832a8754b2aee0c0571d2b8b981611776ce59b43c6838a6a12`](https://explorer-studio-dev.genlayer.com/tx/0x7fb6e133d256fc832a8754b2aee0c0571d2b8b981611776ce59b43c6838a6a12)
 - **Resolve Challenge Transaction**: [`0xf118c7d9da1b29a28896a237f48a8a4f9aa129e083c078aeecff1e1140939ca6`](https://explorer-studio-dev.genlayer.com/tx/0xf118c7d9da1b29a28896a237f48a8a4f9aa129e083c078aeecff1e1140939ca6)
-- **Final Consensus Status**: `BREACHED`
-- **Accounting Invariant**: `true`
+- **Final Contract State**: `BREACHED`
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ### Scenario 4: Material Disclaimer Semantic Breach
 - **Contract Address**: [`0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4`](https://explorer-studio-dev.genlayer.com/address/0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4)
@@ -94,8 +99,9 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Publish Epoch Transaction**: [`0x98bb7eeb557aa18d533ba1eb04085c2c5c249a5b6c00d5402a5cf3a0f7936a71`](https://explorer-studio-dev.genlayer.com/tx/0x98bb7eeb557aa18d533ba1eb04085c2c5c249a5b6c00d5402a5cf3a0f7936a71)
 - **Open Challenge Transaction**: [`0xa1779ba3f92e4a64861ee790696eb64139981882d8c3ae5e47878d65a8df2d06`](https://explorer-studio-dev.genlayer.com/tx/0xa1779ba3f92e4a64861ee790696eb64139981882d8c3ae5e47878d65a8df2d06)
 - **Resolve Challenge Transaction**: [`0x341e97d159a68e6f1f4520bc39e802ef67b7325608b688d6ef4e057a627a4eb1`](https://explorer-studio-dev.genlayer.com/tx/0x341e97d159a68e6f1f4520bc39e802ef67b7325608b688d6ef4e057a627a4eb1)
-- **Final Consensus Status**: `BREACHED`
-- **Accounting Invariant**: `true`
+- **Final Contract State**: `BREACHED`
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ### Scenario 5: Unsupported Semantic Accusation Upheld
 - **Contract Address**: [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee)
@@ -103,8 +109,9 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Publish Epoch Transaction**: [`0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97`](https://explorer-studio-dev.genlayer.com/tx/0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97)
 - **Open Challenge Transaction**: [`0x5f81e8e54bb14ad0134e40946a90ca15a2030e550e40a315ad0eb51be94ae41c`](https://explorer-studio-dev.genlayer.com/tx/0x5f81e8e54bb14ad0134e40946a90ca15a2030e550e40a315ad0eb51be94ae41c)
 - **Resolve Challenge Transaction**: [`0x63d87f4c12e22a35f85d9f6ef13ecc348ab4b84a605b3c724378c97f725941ed`](https://explorer-studio-dev.genlayer.com/tx/0x63d87f4c12e22a35f85d9f6ef13ecc348ab4b84a605b3c724378c97f725941ed)
-- **Final Consensus Status**: `UPHELD`
-- **Accounting Invariant**: `true`
+- **Final Contract State**: `UPHELD`
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ### Scenario 6: Unreachable Evidence Inconclusive
 - **Contract Address**: [`0xd746297196b2c4a18bE1bA45f5541537F018cce0`](https://explorer-studio-dev.genlayer.com/address/0xd746297196b2c4a18bE1bA45f5541537F018cce0)
@@ -112,8 +119,9 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Publish Epoch Transaction**: [`0x6dd63c58e1b6340125dd2486ddc7ecfdc7499d9de26716f799780b2d676986fd`](https://explorer-studio-dev.genlayer.com/tx/0x6dd63c58e1b6340125dd2486ddc7ecfdc7499d9de26716f799780b2d676986fd)
 - **Open Challenge Transaction**: [`0xde3a20f53fb2198c7a0c0aaecae756ded1f8f890be25ea49287526e5dbde6ff1`](https://explorer-studio-dev.genlayer.com/tx/0xde3a20f53fb2198c7a0c0aaecae756ded1f8f890be25ea49287526e5dbde6ff1)
 - **Resolve Challenge Transaction**: [`0x19350fd4bdfb8df254a0beeb8edc87535f9e52e0656ebe42f65a2366ccb052f9`](https://explorer-studio-dev.genlayer.com/tx/0x19350fd4bdfb8df254a0beeb8edc87535f9e52e0656ebe42f65a2366ccb052f9)
-- **Final Consensus Status**: `INCONCLUSIVE`
-- **Accounting Invariant**: `true`
+- **Final Contract State**: `INCONCLUSIVE` (Deterministically verified via hash mismatch rule on reachable URL)
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ### Scenario 7: Repeated Resolution Revert Inconclusive
 - **Contract Address**: [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26)
@@ -121,10 +129,12 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Publish Epoch Transaction**: [`0xb985a266ae23c231a541aedd4bfb888751f447f679f26dd93a8a3a11840443c4`](https://explorer-studio-dev.genlayer.com/tx/0xb985a266ae23c231a541aedd4bfb888751f447f679f26dd93a8a3a11840443c4)
 - **Open Challenge Transaction**: [`0x84b0e45c0adfe1dd0b1ec8c69b388629a8332f3206955021c39e31d68884851e`](https://explorer-studio-dev.genlayer.com/tx/0x84b0e45c0adfe1dd0b1ec8c69b388629a8332f3206955021c39e31d68884851e)
 - **First Resolve Challenge Transaction**: [`0xeae491bc4c244695d5a0addfcd51b19e228223ebd84da42042bad6f095c8a367`](https://explorer-studio-dev.genlayer.com/tx/0xeae491bc4c244695d5a0addfcd51b19e228223ebd84da42042bad6f095c8a367)
+  - Result: `FINISHED_WITH_RETURN`, Consensus: `MAJORITY_AGREE`
 - **Repeated Resolve Revert Transaction**: [`0x83d11b3dddd357e8b0803b5f20e9b0eea12954277431b0034a22d701b9e6d39d`](https://explorer-studio-dev.genlayer.com/tx/0x83d11b3dddd357e8b0803b5f20e9b0eea12954277431b0034a22d701b9e6d39d)
-  - Result: `FINISHED_WITH_ERROR`, expected revert message "resolve_challenge only allowed in CHALLENGED state" verified.
-- **Final Consensus Status**: `INCONCLUSIVE`
-- **Accounting Invariant**: `true`
+  - Result: `FINISHED_WITH_ERROR`, Consensus: `MAJORITY_AGREE`, expected revert message "resolve_challenge only allowed in CHALLENGED state" verified.
+- **Final Contract State**: `INCONCLUSIVE`
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ### Scenario 8: Cancel Epoch and Double Withdrawal Prevention
 - **Contract Address**: [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD)
@@ -133,9 +143,10 @@ All 8 primary scenarios have completed on Studio Devnet with 100% invariant sati
 - **Cancel Epoch Transaction**: [`0x9cadba17379973eec317c30c3c49221b047ba5887acedf7cd640b1f816657b28`](https://explorer-studio-dev.genlayer.com/tx/0x9cadba17379973eec317c30c3c49221b047ba5887acedf7cd640b1f816657b28)
 - **First Pull-Credit Withdrawal Transaction**: [`0x05c97c52bbadce14b047d3f715307b1063fcf06fb9df4efdba99eff6d83a079d`](https://explorer-studio-dev.genlayer.com/tx/0x05c97c52bbadce14b047d3f715307b1063fcf06fb9df4efdba99eff6d83a079d)
 - **Double Withdrawal Revert Transaction**: [`0xae0cce30c8554b652ae022b5a21bbbbfd37beb9f779e7d6667fae24bdc8e0518`](https://explorer-studio-dev.genlayer.com/tx/0xae0cce30c8554b652ae022b5a21bbbbfd37beb9f779e7d6667fae24bdc8e0518)
-  - Result: `FINISHED_WITH_ERROR`, expected revert message "No withdrawal credit available" verified.
-- **Final Consensus Status**: `CANCELLED`
-- **Accounting Invariant**: `true`
+  - Result: `FINISHED_WITH_ERROR`, Consensus: `MAJORITY_AGREE`, expected revert message "No withdrawal credit available" verified.
+- **Final Contract State**: `CANCELLED`
+- **Consensus Receipt Status**: `FINALIZED / MAJORITY_AGREE`
+- **Accounting Invariant Verified**: `true` (`get_accounting().invariant_satisfied == true`)
 
 ---
 
@@ -175,15 +186,22 @@ All 13 cleanup targets across all 8 contracts were executed, finalized, and conf
 
 | Metric | Status | Detail |
 |---|---|---|
-| **Primary Scenarios** | `PRIMARY_SCENARIOS_PASS` | All 8 scenarios passed with 100% consensus agreement and satisfied accounting invariants |
+| **Primary Scenarios** | `PRIMARY_SCENARIOS_PASS` | All eight scenario workflows reached their intended terminal contract states with satisfied accounting invariants. The cited intelligent-contract writes reached `FINALIZED / MAJORITY_AGREE`. The two expected negative-path transactions reached `FINALIZED / FINISHED_WITH_ERROR / MAJORITY_AGREE`. Native transfers reached `FINALIZED / NOT_VOTED` with `value_credited=true`. |
 | **Contract Credits** | `13/13 TARGETS WITHDRAWN` | Exactly `105,000,000,000,000,000 wei` (`0.105 GEN`) pulled across all 13 withdrawal operations |
-| **Contract Cleanup** | `COMPLETE FOR ALL DEPLOYED` | Zero unresolved credits across all 8 deployed contracts |
+| **Contract Cleanup** | `COMPLETE FOR ALL DEPLOYED` | Zero unresolved credits across all 8 deployed contracts; verified on-chain via `get_accounting()` |
 | **Persistent Challenger EOA Residual** | `0 wei` | Strictly `0 wei` verified on OS keychain account [`0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`](https://explorer-studio-dev.genlayer.com/address/0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9) |
 | **Economic Cleanup** | `ECONOMIC_CLEANUP_COMPLETE` | All 13 targets withdrawn; persistent challenger residual swept cleanly to issuer |
-| **CURRENT_SESSION_LIVE_READINESS** | `READY` | All 8 scenarios verified on-chain; strict zero residual achieved |
+| **CURRENT_SESSION_LIVE_READINESS** | `READY_DISPOSABLE_CLEAN` | Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending. |
 | **Historical Stranded 1** | `1.720000000000173913 GEN` | Address [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698) |
 | **Historical Stranded 2** | `1.720000000000173913 GEN` | Address [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e) |
 | **Historical Session 3 Stranded** | `127,873,695,000,009,529 wei` | Address [`0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`](https://explorer-studio-dev.genlayer.com/address/0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D) |
 | **Historical Superseded Contract** | [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) | **SUPERSEDED / NONCANONICAL — DO NOT USE** |
 | **Canonical Deployment** | `NOT PERFORMED` | Canonical deployment remains gated |
+| **Canonical Deployed-Source Parity** | `NOT YET PROVEN` | Requires canonical deployment before parity can be certified |
 | **GenLayer Portal Submission** | `NOT PERFORMED` | No portal interaction |
+
+---
+
+## 6. Historical Transaction Retrieval Notice
+
+All eight disposable contract addresses and transaction hashes cited in this evidence record were committed from live on-chain executions. While current on-chain state reads confirm that all eight disposable contracts have zero balance, zero credits, zero locked bonds, and satisfied invariants, retrieval of older individual transaction receipts from the public Studio-dev RPC endpoint may be subject to network retention and indexing policies. Committed transaction hashes are preserved without alteration or fabrication.

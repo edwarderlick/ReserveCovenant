@@ -261,9 +261,11 @@ npm run fixtures:prepublish
   - `fixtures/epoch-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-material-disclaimer.json` (SHA-256: `8695610270fe368398c83ab418752fd4241bf51eb28d073aceee7c9423e03f3b`)
 - **Code-Bearing Commit**: `0d6888d89d77d97adceb43f05e752459e2bf1795` (enforced platform CRLF for schema, verified published fixtures in CI, handled publication readiness in offline harness)
 - **Public GitHub Actions CI Run**: [Run 39203840714](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39203840714) (**PASSED / SUCCESS** across all 21 verification steps)
-- **Status**: **PUBLICATION_READY**
-- **Zero Live Writes / Canonical Deployments**: Zero live validator-consensus runs, zero canonical redeployments executed. Older Studio Devnet deployment (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`) remains superseded/noncanonical.
-- **Next Gated Action**: Authoritative TypeScript live integration execution (`deploy/run_live_integration.ts`) gated by explicit opt-in (`RESERVECOVENANT_RUN_LIVE_TESTS=1`).
+- **Historical Pre-Live Publication Checkpoint (Dated 2026-10-18T18:00:00Z)**:
+  - **Status at Checkpoint**: `PUBLICATION_READY`
+  - **Pre-Live Boundary State**: At this initial preparation stage, zero live validator-consensus runs and zero canonical redeployments had been executed. Older Studio Devnet deployment (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`) remained superseded/noncanonical.
+  - **Gated Action Defined at Checkpoint**: Authoritative TypeScript live integration execution (`deploy/run_live_integration.ts`) gated by explicit opt-in (`RESERVECOVENANT_RUN_LIVE_TESTS=1`).
+  - **Superseded Notice**: This historical pre-live checkpoint has been superseded by the completed Scenario 1–8 live integration execution documented in Section 11 of this file and in `evidence/live-integration.md`.
 
 ### 6. Integration Test Opt-In Guard Verification
 Commands:
@@ -357,15 +359,15 @@ get_accounting():
   - `deploy/schema.json`: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
 - **Live Harness Implementation**: Complete and offline-tested across 41 checks (15 Python in `tests/harness/test_live_harness_offline.py` + 18 core check groups + 23 native-transfer regression checks in `deploy/test_harness_offline.ts`).
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0). Commit-pinned at `COMMIT_B` (`698b675e5b637f263f841ac148e1718f3c566024`).
-- **Live Validator Scenarios (1–8)**: All 8 scenarios passed on Studio Devnet with confirmed consensus outcomes and satisfied invariants:
-  - Scenario 1: [`0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf`](https://explorer-studio-dev.genlayer.com/address/0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf) (**BREACHED**, invariant: `true`)
-  - Scenario 2: [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA) (**BREACHED**, invariant: `true`)
-  - Scenario 3: [`0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0`](https://explorer-studio-dev.genlayer.com/address/0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0) (**BREACHED**, invariant: `true`)
-  - Scenario 4: [`0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4`](https://explorer-studio-dev.genlayer.com/address/0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4) (**BREACHED**, invariant: `true`)
-  - Scenario 5: [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee) (**UPHELD**, invariant: `true`)
-  - Scenario 6: [`0xd746297196b2c4a18bE1bA45f5541537F018cce0`](https://explorer-studio-dev.genlayer.com/address/0xd746297196b2c4a18bE1bA45f5541537F018cce0) (**INCONCLUSIVE**, invariant: `true`)
-  - Scenario 7: [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26) (**INCONCLUSIVE**, invariant: `true`)
-  - Scenario 8: [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD) (**CANCELLED**, invariant: `true`)
+- **Live Validator Scenarios (1–8)**: All eight scenario workflows reached their intended terminal contract states with satisfied accounting invariants. The cited intelligent-contract writes reached `FINALIZED / MAJORITY_AGREE`. The two expected negative-path transactions reached `FINALIZED / FINISHED_WITH_ERROR / MAJORITY_AGREE`. Native transfers reached `FINALIZED / NOT_VOTED` with `value_credited=true`:
+  - Scenario 1: [`0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf`](https://explorer-studio-dev.genlayer.com/address/0x9fBE31b083Dcbe9207898ab1a496d4433c388Cdf) (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
+  - Scenario 2: [`0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA`](https://explorer-studio-dev.genlayer.com/address/0x0ad95d5703636F9d9bc3ddcDD7e3FbA792A82DFA) (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
+  - Scenario 3: [`0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0`](https://explorer-studio-dev.genlayer.com/address/0xBc17922E02141a1cb7A523f0E5b269A8901e3BB0) (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
+  - Scenario 4: [`0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4`](https://explorer-studio-dev.genlayer.com/address/0xFE259c8E342fb4cF0D46A20E125A6fc7D64022e4) (Final Contract State: `BREACHED`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
+  - Scenario 5: [`0xbd80518107647cD17c1Af617c5a50fc5b9B037ee`](https://explorer-studio-dev.genlayer.com/address/0xbd80518107647cD17c1Af617c5a50fc5b9B037ee) (Final Contract State: `UPHELD`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
+  - Scenario 6: [`0xd746297196b2c4a18bE1bA45f5541537F018cce0`](https://explorer-studio-dev.genlayer.com/address/0xd746297196b2c4a18bE1bA45f5541537F018cce0) (Final Contract State: `INCONCLUSIVE`, consensus: `FINALIZED / MAJORITY_AGREE`, invariant: `true`)
+  - Scenario 7: [`0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26`](https://explorer-studio-dev.genlayer.com/address/0x98BD4E45F1dFED14f0A0A9eF7d39022864E07d26) (Final Contract State: `INCONCLUSIVE`, consensus: `FINALIZED / MAJORITY_AGREE`, repeated resolve revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`)
+  - Scenario 8: [`0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD`](https://explorer-studio-dev.genlayer.com/address/0xa8dA22D18534453CdFA1b7693Fa460B1ef7De6AD) (Final Contract State: `CANCELLED`, consensus: `FINALIZED / MAJORITY_AGREE`, double withdrawal revert: `FINISHED_WITH_ERROR / MAJORITY_AGREE`, invariant: `true`)
 - **Current Authoritative Issuer Balance**: `11,553,465,994,499,443,020 wei` (~`11.55347 GEN`)
 - **Persistent OS Keychain Challenger**:
   - Address: [`0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9`](https://explorer-studio-dev.genlayer.com/address/0x5fFb54b1915c2b04EfE86ae6f50bA7A3fAFf58F9)
@@ -375,17 +377,22 @@ get_accounting():
   - Final Residual Balance: `0 wei` (exact zero residual verified)
 - **Economic Cleanup (13/13 Targets)**:
   - 13 withdrawal operations completed across all 8 contracts: exactly `105,000,000,000,000,000 wei` (`0.105 GEN`) recovered.
-  - Zero unwithdrawn pull credits remain in any deployed scenario contract.
+  - Zero unwithdrawn pull credits remain in any deployed scenario contract; confirmed on-chain via `get_accounting()`.
 - **Historical Ephemeral Challenger Incidents & Stranded Balances**:
   - Incident 1 Challenger: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698) (`1,720,000,000,000,173,913 wei`)
   - Incident 2 Challenger: [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e) (`1,720,000,000,000,173,913 wei`)
   - Session 3 Ephemeral Challenger: [`0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D`](https://explorer-studio-dev.genlayer.com/address/0xC795a3ebf7d2A2CeD5618d4F304e42aAbeDDfc9D) (`127,873,695,000,009,529 wei`)
 - **Live Integration Evidence**: Documented in [`evidence/live-integration.md`](live-integration.md) with verified explorer links.
-- **GitHub Actions Status**:
-  - Baseline Green CI: [Run 39219903114](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114)
-  - Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987)
-- **Portal Submission**: No portal submission has occurred.
-- **Authoritative Statement**: Canonical deployment and portal submission remain gated; live integration verification completed on noncanonical disposable contracts.
+- **GitHub Actions Status & Commits**:
+  - Baseline Green CI: [Run 39219903114](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39219903114) (Commit [`48eef4e021c6c1c75a01144f0bec555b084a8b11`](https://github.com/edwarderlick/ReserveCovenant/commit/48eef4e021c6c1c75a01144f0bec555b084a8b11))
+  - Code-Bearing Continuation Green CI: [Run 39230843987](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39230843987) (Commit [`7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901`](https://github.com/edwarderlick/ReserveCovenant/commit/7f8c43a4e98f79e8cf168f86fdb43ae2fe70f901))
+  - Prior Evidence-Documentation Green CI: [Run 39233275830](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39233275830) (Commit [`f1d9b3003254aa33c7f8668086e9380f6c6de91b`](https://github.com/edwarderlick/ReserveCovenant/commit/f1d9b3003254aa33c7f8668086e9380f6c6de91b))
+- **Authoritative Lifecycle Boundary**:
+  - Live-validation and disposable-contract cleanup complete; canonical deployment and portal submission remain pending.
+  - Canonical Deployment: NOT PERFORMED
+  - Canonical Deployed-Source Parity: NOT YET PROVEN
+  - GenLayer Portal Submission: NOT PERFORMED
+- **Historical Transaction Retrieval Notice**: All eight disposable contract addresses and transaction hashes cited in this evidence record were committed from live on-chain executions. While current on-chain state reads confirm that all eight disposable contracts have zero balance, zero credits, zero locked bonds, and satisfied invariants, retrieval of older individual transaction receipts from the public Studio-dev RPC endpoint may be subject to network retention and indexing policies. Committed transaction hashes are preserved without alteration or fabrication.
 
 ---
 
