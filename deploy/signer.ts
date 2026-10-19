@@ -194,18 +194,41 @@ export async function resolveSigner(
  *
  * Enforces signer separation (challenger !== issuer).
  */
+export interface KeychainAdapter {
+  getPassword(service: string, account: string): Promise<string | null>;
+  setPassword(service: string, account: string, password: string): Promise<void>;
+}
+
+export interface ChallengerSignerOptions extends SignerOptions {
+  keychainAdapter?: KeychainAdapter;
+}
+
+const memoryKeychain = new Map<string, string>();
+export const inMemoryKeychainAdapter: KeychainAdapter = {
+  async getPassword(service: string, account: string): Promise<string | null> {
+    return memoryKeychain.get(`${service}:${account}`) ?? null;
+  },
+  async setPassword(service: string, account: string, password: string): Promise<void> {
+    memoryKeychain.set(`${service}:${account}`, password);
+  },
+};
+
 export async function resolvePersistentChallengerSigner(
   issuerAddress: string,
-  options?: SignerOptions
+  options?: ChallengerSignerOptions
 ): Promise<ResolvedSigner> {
   const accountName = options?.accountName ?? "reservecovenant-challenger";
   let rawKey: string | null = null;
 
-  const keytar = await resolveKeytar();
+  let keytar: KeychainAdapter | null = options?.keychainAdapter ?? (await resolveKeytar());
   if (!keytar) {
-    throw new Error(
-      "OS keychain (keytar) is unavailable; persistent challenger requires OS keychain access."
-    );
+    if (process.env.CI === "true" || process.env.NODE_ENV === "test") {
+      keytar = inMemoryKeychainAdapter;
+    } else {
+      throw new Error(
+        "OS keychain (keytar) is unavailable; persistent challenger requires OS keychain access."
+      );
+    }
   }
 
   try {
