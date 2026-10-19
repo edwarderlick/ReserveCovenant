@@ -264,9 +264,33 @@ export function checkPublicFixtures(fixturesDir?: string): CheckResult {
   };
 }
 
+export interface FixtureEvaluationResult {
+  checkRes: CheckResult;
+  prepublishPass: boolean;
+  strictPass: boolean;
+  status: string;
+}
+
+export function evaluateFixturesStatus(fixturesDir?: string): FixtureEvaluationResult {
+  const checkRes = checkPublicFixtures(fixturesDir);
+  const strictPass = checkRes.evidenceValid && checkRes.allPinned;
+  const prepublishPass = checkRes.evidenceValid && !checkRes.allPinned;
+  const status = strictPass
+    ? "PUBLICATION_READY"
+    : "BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION";
+
+  return {
+    checkRes,
+    prepublishPass,
+    strictPass,
+    status,
+  };
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const isCheck = args.includes("--check");
+  const isPrepublish = args.includes("--prepublish");
   const isWrite = args.includes("--write");
 
   let owner = "";
@@ -282,24 +306,56 @@ async function main(): Promise<void> {
   console.log("=== ReserveCovenant Public Fixtures Preparation & Verification ===");
 
   if (isCheck) {
-    const checkRes = checkPublicFixtures();
-    console.log(`Local Evidence Files Verified: ${checkRes.evidenceValid}`);
-    console.log(`All Fixtures Commit-Pinned:   ${checkRes.allPinned}`);
-    if (!checkRes.allPinned) {
+    const evalResult = evaluateFixturesStatus();
+    console.log(`Local Evidence Files Verified: ${evalResult.checkRes.evidenceValid}`);
+    console.log(`All Fixtures Commit-Pinned:   ${evalResult.checkRes.allPinned}`);
+
+    if (!evalResult.strictPass) {
       console.log("\nNotice: Current fixtures contain local/placeholder URLs pending public repository publication:");
-      for (const d of checkRes.details) {
+      for (const d of evalResult.checkRes.details) {
         console.log(` - ${d}`);
       }
-      console.log("\nStatus: BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION (expected prior to public repo publication).");
-    } else {
-      console.log("\nAll fixture URLs are strictly commit-pinned and evidence hashes match.");
+      console.log(`\nStatus: ${evalResult.status} (expected prior to public repo publication).`);
+      console.error("\n[STRICT CHECK FAILED] All fixture URLs must be strictly commit-pinned and valid for publication.");
+      process.exit(1);
     }
-    return;
+
+    console.log("\nAll fixture URLs are strictly commit-pinned and evidence hashes match.");
+    console.log(`Status: ${evalResult.status}`);
+    process.exit(0);
+  }
+
+  if (isPrepublish) {
+    const evalResult = evaluateFixturesStatus();
+    console.log(`Local Evidence Files Verified: ${evalResult.checkRes.evidenceValid}`);
+    console.log(`Placeholder State Detected:   ${!evalResult.checkRes.allPinned}`);
+
+    if (!evalResult.checkRes.evidenceValid) {
+      console.error("\n[PREPUBLISH ERROR] Local evidence file validation or hash parity check failed:");
+      for (const d of evalResult.checkRes.details) {
+        console.error(` - ${d}`);
+      }
+      process.exit(1);
+    }
+
+    if (evalResult.checkRes.allPinned) {
+      console.log("\nAll fixtures are already commit-pinned. Run npm run fixtures:check for strict publication verification.");
+      process.exit(0);
+    }
+
+    console.log("\nNotice: Current fixtures contain local/placeholder URLs pending public repository publication:");
+    for (const d of evalResult.checkRes.details) {
+      console.log(` - ${d}`);
+    }
+    console.log(`\nStatus: ${evalResult.status} (expected prior to public repo publication).`);
+    console.log("Pre-publication local inspection PASSED: internal evidence hashes verified and blocked state is consistent.");
+    process.exit(0);
   }
 
   if (!owner || !repo || !commitA) {
     console.error("Usage: tsx deploy/prepare_public_fixtures.ts --owner <owner> --repo <repo> --commit-a <40-hex-commit> [--write]");
     console.error("   or: tsx deploy/prepare_public_fixtures.ts --check");
+    console.error("   or: tsx deploy/prepare_public_fixtures.ts --prepublish");
     process.exit(1);
   }
 

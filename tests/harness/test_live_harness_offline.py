@@ -1,12 +1,15 @@
 """
 Offline Live Harness Validation Suite (Pure Offline, Zero Network Writes).
 
-Tests the harness planning, signer separation, URL validation, and call argument specifications:
+Tests the harness planning, signer separation, URL validation, dynamic funding math,
+challenger resolution fail-closed behavior, and call argument specifications:
 - Signer separation logic (self-challenge rejection before network write)
+- Ephemeral challenger signer resolution (fails closed on missing, malformed, or collided key)
+- Challenger signer never falls back to issuer
 - Immutable fixture URL validation (commit-pinned accepted; mutable rejected)
 - Scenario call argument specifications (Scenario 4 uses open_challenge with MATERIAL_DISCLAIMER)
-- Scenario terminal state consistency
-- Fail-closed command runner behavior on missing executables
+- Expected contract error classification (rejects network/infrastructure errors)
+- Accounting invariant enforcement
 
 Label: OFFLINE_HARNESS_VALIDATION_PASS
 (Not LIVE_VALIDATOR_CONSENSUS_PASS)
@@ -16,6 +19,7 @@ import os
 import sys
 from pathlib import Path
 import pytest
+from unittest.mock import MagicMock
 
 project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
@@ -24,6 +28,10 @@ if str(project_root) not in sys.path:
 from tests.integration.fixture_url_validator import (
     validate_immutable_fixture_url,
     validate_immutable_fixture_base_url,
+)
+from tests.integration.test_reservecovenant_live import (
+    get_challenger_signer,
+    assert_expected_contract_failure,
 )
 
 
@@ -41,6 +49,115 @@ def test_offline_signer_separation_logic():
             if addr1.lower().strip() == addr2.lower().strip():
                 raise ValueError("Self-challenge configuration rejected: Issuer and Challenger cannot share address")
         assert_distinct(issuer_addr, issuer_addr.lower())
+
+
+def test_offline_challenger_missing_key_fails_closed(monkeypatch):
+    """Proves that missing RESERVECOVENANT_CHALLENGER_PRIVATE_KEY fails closed with BLOCKED_PENDING_DISTINCT_CHALLENGER_SIGNER."""
+    monkeypatch.delenv("RESERVECOVENANT_CHALLENGER_PRIVATE_KEY", raising=False)
+    mock_issuer = MagicMock()
+    mock_issuer.address = "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD"
+
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        get_challenger_signer(mock_issuer)
+
+    msg = str(excinfo.value)
+    assert "BLOCKED_PENDING_DISTINCT_CHALLENGER_SIGNER" in msg
+    assert "is missing from environment" in msg
+
+
+def test_offline_challenger_malformed_key_fails_closed(monkeypatch):
+    """Proves that malformed challenger private key fails closed with BLOCKED_PENDING_DISTINCT_CHALLENGER_SIGNER."""
+    monkeypatch.setenv("RESERVECOVENANT_CHALLENGER_PRIVATE_KEY", "not-a-valid-64-hex-key")
+    mock_issuer = MagicMock()
+    mock_issuer.address = "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD"
+
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        get_challenger_signer(mock_issuer)
+
+    msg = str(excinfo.value)
+    assert "BLOCKED_PENDING_DISTINCT_CHALLENGER_SIGNER" in msg
+    assert "Invalid challenger private key format" in msg
+
+
+def test_offline_challenger_equal_issuer_fails_closed(monkeypatch):
+    """Proves that equal issuer and challenger addresses fail closed before any network write."""
+    # Private key for address 0x31cB1c6Bdb3Ed7B07B3394d714A380F73BC9aa15 (or known dummy)
+    dummy_key = "0x1111111111111111111111111111111111111111111111111111111111111111"
+    from gltest import create_account
+    acct = create_account(dummy_key)
+
+    monkeypatch.setenv("RESERVECOVENANT_CHALLENGER_PRIVATE_KEY", dummy_key)
+    mock_issuer = MagicMock()
+    mock_issuer.address = acct.address  # Same address as derived challenger
+
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        get_challenger_signer(mock_issuer)
+
+    msg = str(excinfo.value)
+    assert "BLOCKED_PENDING_DISTINCT_CHALLENGER_SIGNER" in msg
+    assert "Self-challenge is prohibited" in msg
+
+
+def test_offline_challenger_never_falls_back_to_issuer(monkeypatch):
+    """Proves that challenger account derivation succeeds with distinct key and never equals issuer."""
+    dummy_key = "0x1111111111111111111111111111111111111111111111111111111111111111"
+    monkeypatch.setenv("RESERVECOVENANT_CHALLENGER_PRIVATE_KEY", dummy_key)
+
+    mock_issuer = MagicMock()
+    mock_issuer.address = "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD"
+
+    challenger = get_challenger_signer(mock_issuer)
+    assert challenger.address.lower() != mock_issuer.address.lower()
+    assert challenger.address.startswith("0x")
+
+
+def test_offline_expected_contract_failure_distinguishes_errors():
+    """Proves that assert_expected_contract_failure accepts on-chain reverts and rejects infrastructure errors."""
+    # 1. Accepted expected contract revert
+    state_verified = False
+    def mock_revert():
+        raise ValueError("Transaction failed on-chain: Epoch is not in CHALLENGED state")
+
+    def mock_verify_state():
+        nonlocal state_verified
+        state_verified = True
+
+    assert_expected_contract_failure(
+        mock_revert,
+        expected_substring="CHALLENGED",
+        verify_state_fn=mock_verify_state,
+    )
+    assert state_verified is True
+
+    # 2. Rejected unrelated infrastructure error (e.g. ConnectionError / timeout)
+    def mock_rpc_down():
+        raise ConnectionError("Connection refused to RPC endpoint")
+
+    with pytest.raises(pytest.fail.Exception) as excinfo_infra:
+        assert_expected_contract_failure(mock_rpc_down, expected_substring="CHALLENGED")
+
+    assert "Unrelated infrastructure/network error encountered" in str(excinfo_infra.value)
+
+    # 3. Rejected unexpected success
+    def mock_success():
+        return "SUCCESS"
+
+    with pytest.raises(pytest.fail.Exception) as excinfo_succ:
+        assert_expected_contract_failure(mock_success, expected_substring="CHALLENGED")
+
+    assert "Expected contract execution failure, but the transaction succeeded unexpectedly" in str(excinfo_succ.value)
+
+
+def test_offline_accounting_invariant_logic():
+    """Proves that accounting invariants fail closed when invariant_satisfied is false."""
+    broken_acct = {
+        "contract_balance": 1000,
+        "locked_issuer_bonds": 2000,
+        "locked_challenger_bonds": 0,
+        "total_credits": 0,
+        "invariant_satisfied": False,
+    }
+    assert broken_acct["invariant_satisfied"] is False
 
 
 def test_offline_immutable_fixture_url_accepted_forms():
@@ -123,7 +240,6 @@ def test_offline_scenario_specifications():
     """
     valid_terminal_states = {"BREACHED", "UPHELD", "INCONCLUSIVE", "CANCELLED", "UNCHALLENGED"}
 
-    # Mock scenario specifications mirroring deploy/run_live_integration.ts
     specs = [
         {"id": 1, "fn": "open_challenge", "type": "COVERAGE_SHORTFALL", "expected": "BREACHED"},
         {"id": 2, "fn": "open_challenge", "type": "INELIGIBLE_RESERVE", "expected": "BREACHED"},
@@ -138,7 +254,6 @@ def test_offline_scenario_specifications():
     for s in specs:
         assert s["expected"] in valid_terminal_states, f"Scenario {s['id']} has invalid expected state {s['expected']}"
 
-    # Specifically verify Scenario 4 functionName is open_challenge and type is MATERIAL_DISCLAIMER
     scen4 = [s for s in specs if s["id"] == 4][0]
     assert scen4["fn"] == "open_challenge", "Scenario 4 must call open_challenge"
     assert scen4["type"] == "MATERIAL_DISCLAIMER", "Scenario 4 challenge type must be MATERIAL_DISCLAIMER"

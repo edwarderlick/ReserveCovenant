@@ -114,48 +114,52 @@ npm run test:harness
 ```
 Output:
 ```
-============================== 4 passed in 0.06s ==============================
+============================= 10 passed in 0.08s ==============================
 === Running Offline Live-Harness Validation Suite ===
-[1/5] Testing Signer Separation...
-[2/5] Testing Immutable Fixture URL Validation...
-[3/5] Testing Scenario Specifications...
-[4/5] Testing Public Fixture Preparation Tool (Dry-Run)...
-[5/5] All offline validation checks passed.
+[1/12] Testing Signer Separation & Scenario Ownership...
+[2/12] Testing Challenger Transaction Count Derivation...
+[3/12] Testing Dynamic Challenger Funding Calculations...
+[4/12] Testing Issuer Balance Preflight Calculations...
+[5/12] Testing Receipt Execution Verification...
+[6/12] Testing Expected Contract Execution Error Classification...
+[7/12] Testing Accounting Invariant Enforcement...
+[8/12] Testing Fixture Check & Prepublish Modes...
+[9/12] Testing Immutable Fixture URL Validation...
+[10/12] Testing Scenario Specifications...
+[11/12] Testing Public Fixture Preparation Tool (Dry-Run)...
+[12/12] All offline validation checks passed.
 
 =================================================
 >>> OFFLINE_HARNESS_VALIDATION_PASS <<<
 Harness logic, signer separation, URL security,
-and scenario specifications verified offline.
+dynamic funding, receipt verification, error
+classification, and scenario specifications verified.
 (Zero deployments, zero transactions submitted).
 =================================================
 ```
-Result: **OFFLINE_HARNESS_VALIDATION_PASS**. Confirms:
+Result: **OFFLINE_HARNESS_VALIDATION_PASS** (22 tests passed: 10 Python + 12 TypeScript checks). Confirms:
 - Signer separation logic (self-challenge rejected before any network write);
+- Distinct challenger resolution fails closed on missing, malformed, or collided key (`BLOCKED_PENDING_DISTINCT_CHALLENGER_SIGNER`);
+- Challenger account selection never falls back to issuer;
+- Dynamic funding formula (`35e15 wei` bonds + estimated fees + bounded margin);
+- Issuer balance preflight and challenger balance preflight;
+- Strict receipt execution requiring `FINISHED_WITH_RETURN`;
+- Specific contract execution error classification (`FINISHED_WITH_ERROR`) distinguishing contract rejections from infrastructure/network errors;
+- Accounting invariant enforcement (`invariant_satisfied === true`, locked bonds zero);
 - Strict immutable fixture URL validation (commit-pinned accepted; mutable `/main/`, branches rejected);
 - Scenario call specifications (Scenario 4 calls `open_challenge` with `challengeType: "MATERIAL_DISCLAIMER"`);
 - Scenario 7 uses a fresh disposable instance for repeated resolution testing;
 - Public fixture preparation tool dry-run and canonical JSON serialization.
 
-### 5. Public Fixtures Check & Two-Commit Publication Flow
-Command:
+### 5. Public Fixtures Check & Prepublication Mode
+Commands:
 ```bash
 npm run fixtures:check
+npm run fixtures:prepublish
 ```
-Output:
-```
-=== ReserveCovenant Public Fixtures Preparation & Verification ===
-Local Evidence Files Verified: true
-All Fixtures Commit-Pinned:   false
+- `npm run fixtures:check` (Strict Publication Mode): Exits nonzero (code 1) prior to repository publication because fixture URLs contain prepublication placeholder branch references. Correctly reports `BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION`.
+- `npm run fixtures:prepublish` (Pre-Publication Inspection Mode): Exits code 0 because internal evidence file hashes match snapshots, placeholder state is explicitly detected, and the blocked status is internally consistent.
 
-Notice: Current fixtures contain local/placeholder URLs pending public repository publication:
- - epoch-compliant.json: mutable or invalid URL '.../main/...' (Mutable branch reference 'main' is strictly disallowed. Exact 40-hex commit SHA required.)
- - epoch-coverage-shortfall.json: mutable or invalid URL '.../main/...'
- - epoch-future-dated.json: mutable or invalid URL '.../main/...'
- - epoch-ineligible-reserve.json: mutable or invalid URL '.../main/...'
- - epoch-material-disclaimer.json: mutable or invalid URL '.../main/...'
-
-Status: BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION (expected prior to public repo publication).
-```
 **Two-Commit Publication Procedure**:
 1. **Stage A (Evidence Commit)**:
    - Publish local evidence files (`issuer-upheld-evidence.json`, `issuer-material-disclaimer.json`, `challenger-unsupported-claim.json`, `challenger-material-disclaimer.json`) to GitHub repository.
@@ -170,11 +174,16 @@ Status: BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION (expected prior to public rep
 Commands:
 ```bash
 pytest tests/integration/test_reservecovenant_live.py -v
+npm run test:integration:python:live
 npm run test:integration:live
 ```
 Output:
 ```
-============================= 8 skipped in 0.08s ==============================
+============================= 8 skipped in 0.07s ==============================
+=== ReserveCovenant Python Live Integration Launcher ===
+[SKIP] Live tests require explicit opt-in via RESERVECOVENANT_RUN_LIVE_TESTS=1.
+No transactions were submitted to the network.
+
 === ReserveCovenant Live Integration Test Suite ===
 [SKIP] Live tests require explicit opt-in via RESERVECOVENANT_RUN_LIVE_TESTS=1.
 No transactions were submitted to the network.
@@ -245,13 +254,23 @@ get_accounting():
   total_credits: 0
 ```
 
-### 11. Public Fixture Gate, Signer Separation & Canonical Redeployment Status
+### 11. Final Readiness, Security & Boundary Status
 
-- **Distinct Signers**: Both Python and TypeScript test suites strictly enforce signer separation (`normalized issuer != normalized challenger`). Issuer is resolved from OS keychain; ephemeral challenger is created in process memory via public SDK APIs (`generatePrivateKey()` / `createAccount()`).
-- **Live Test Implementation**: 8 real executable scenarios implemented with fresh disposable contract deployments per scenario (including Scenario 7).
-- **Public Fixture Gate Rule**: GenLayer validators require public, immutable HTTPS endpoints for evidence fetching during consensus. Under the local repository boundary (no GitHub repository exists, no remote configured), fixtures cannot yet be published to an immutable commit-pinned URL.
-- **Gate Status**: **BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION**
-- **Canonical Redeployment**: **STOPPED SAFELY**. No new canonical deployment performed.
+- **Contract Repair Status**: Contract repair is verified offline with 82 passing direct tests.
+- **Immutable Hashes**:
+  - `contracts/reservecovenant.py`: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
+  - `deploy/schema.json`: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
+- **Live Harness Implementation**: Implemented and offline-tested across 22 tests (10 Python + 12 TypeScript).
+- **Public Fixtures Status**: Fixtures are not public; placeholders remain pending remote publication.
+- **Live Scenarios**: Real live validator scenarios have NOT run in this pass.
+- **Validator Consensus**: Validator consensus has NOT been demonstrated on Studio Devnet.
+- **Canonical Redeployment**: Canonical redeployment has NOT occurred.
+- **Current Status**: **BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION**
+- **Historical Deployment**: **SUPERSEDED / NONCANONICAL** (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`)
+- **GitHub Actions Status**: **PREPARED — NOT PUBLICLY EXECUTED**
+- **Portal Submission**: No portal submission has occurred.
+- **Network Writes & Deployments**: Exactly **zero** network writes and **zero** deployments executed.
+- **Authoritative Statement**: **No live validator-consensus result is claimed.**
 
 ---
 

@@ -8,7 +8,8 @@
  * - Challenger: Generated as a fresh ephemeral account in process memory via
  *   generatePrivateKey() / createAccount().
  * - Strict assertion: normalized issuer address != normalized challenger address.
- * - Issuer funds the ephemeral challenger with minimal bond and fee allocation.
+ * - Issuer funds the ephemeral challenger dynamically based on exact scenario specifications
+ *   and Studio Devnet fee estimations.
  * - Challenger signs open_challenge calls; issuer signs deploy and publish_epoch.
  * - Permissionless resolve_challenge calls are signed by issuer.
  *
@@ -23,10 +24,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { createClient, createAccount, generatePrivateKey, isSuccessful } from "genlayer-js";
+import { createClient, createAccount, generatePrivateKey } from "genlayer-js";
 import { studioDevnet } from "genlayer-js/chains";
 import { resolveSigner } from "./signer.js";
 import { validateImmutableFixtureBaseUrl } from "./fixture_url_validator.js";
+import {
+  deriveChallengerTransactionCount,
+  calculateRequiredChallengerFunding,
+  calculateChallengerFundingShortfall,
+  calculateRequiredIssuerBalance,
+  verifyReceiptExecution,
+  expectContractExecutionError,
+  executeAndVerifyChallengerFunding,
+} from "./harness_utils.js";
 
 export const DEFAULT_ISSUER_BOND = 10000000000000000n; // 0.01 GEN
 export const DEFAULT_CHALLENGER_BOND = 5000000000000000n; // 0.005 GEN
@@ -185,10 +195,9 @@ async function deployDisposableInstance(
   });
 
   const receipt = await issuerClient.waitForTransactionReceipt({ hash: txHash });
-  if (!isSuccessful(receipt)) {
-    throw new Error(`Disposable deployment failed for tx ${txHash}`);
-  }
-  const deployedAddress = (receipt as any).contractAddress || (receipt as any).recipient;
+  const summary = verifyReceiptExecution(receipt, "disposable deployment");
+
+  const deployedAddress = summary.contractAddress;
   if (!deployedAddress) {
     throw new Error(`Disposable deployment produced no contract address`);
   }
@@ -217,12 +226,12 @@ async function runLiveIntegration(): Promise<void> {
 
   // 3. Resolve Issuer Signer from OS keychain
   const issuerSigner = await resolveSigner({ checkBalance: true });
-  console.log(`Issuer public address:     ${issuerSigner.address}`);
+  console.log(`[live] Issuer public address:     ${issuerSigner.address}`);
 
   // 4. Generate distinct in-memory Ephemeral Challenger Signer
-  let challengerPrivKey: `0x${string}` | null = generatePrivateKey();
-  const challengerAccount = createAccount(challengerPrivKey);
-  console.log(`Challenger public address: ${challengerAccount.address}`);
+  let challengerPrivKey: string | null = generatePrivateKey();
+  const challengerAccount = createAccount(challengerPrivKey as `0x${string}`);
+  console.log(`[live] Challenger public address: ${challengerAccount.address}`);
 
   // Assert signer separation
   assertSignerSeparation(issuerSigner.address, challengerAccount.address);
@@ -240,16 +249,61 @@ async function runLiveIntegration(): Promise<void> {
     account: challengerAccount,
   });
 
-  // Fund ephemeral challenger from issuer with minimal bond and fee allocation
-  const fundingAmount = 50000000000000000n; // 0.05 GEN
-  console.log(`Funding ephemeral challenger with ${fundingAmount} wei...`);
-  const fundTx = await (issuerClient as any).sendTransaction({
-    account: issuerSigner.account,
-    to: challengerAccount.address,
-    value: fundingAmount,
+  // 5. Calculate dynamic challenger funding derived from exact scenario count
+  const specs = getLiveScenariosSpec();
+  const challengerTxCount = BigInt(deriveChallengerTransactionCount(specs)); // 7 transactions
+  const feeEstimate = await issuerClient.estimateTransactionFees();
+  const feePerTx = BigInt(feeEstimate.feeValue);
+
+  const requiredFunding = calculateRequiredChallengerFunding({
+    challengerTxCount,
+    bondPerTx: DEFAULT_CHALLENGER_BOND,
+    estimatedFeePerTx: feePerTx,
   });
-  await issuerClient.waitForTransactionReceipt({ hash: fundTx as any });
-  console.log(`Funded challenger: tx ${fundTx}`);
+
+  const challengerCurrentBal = await issuerClient.getBalance({
+    address: challengerAccount.address as `0x${string}`,
+  });
+  const shortfall = calculateChallengerFundingShortfall(requiredFunding, challengerCurrentBal);
+
+  console.log(`[live] Challenger transaction count: ${challengerTxCount.toString()}`);
+  console.log(`[live] Estimated fee per tx:         ${feePerTx.toString()} wei`);
+  console.log(`[live] Required challenger funding:   ${requiredFunding.toString()} wei`);
+  console.log(`[live] Challenger current balance:    ${challengerCurrentBal.toString()} wei`);
+  console.log(`[live] Challenger funding shortfall:  ${shortfall.toString()} wei`);
+
+  // Verify Issuer balance preflight
+  const issuerBal = issuerSigner.balance ?? 0n;
+  const requiredIssuerBal = calculateRequiredIssuerBalance({
+    disposableDeployCount: 8n,
+    deployFeePerTx: feePerTx * 2n,
+    issuerBondsTotal: 8n * DEFAULT_ISSUER_BOND,
+    issuerTxCount: 20n,
+    txFeePerTx: feePerTx,
+    challengerShortfall: shortfall,
+  });
+
+  console.log(`[live] Issuer current balance:        ${issuerBal.toString()} wei`);
+  console.log(`[live] Required issuer balance:       ${requiredIssuerBal.toString()} wei`);
+
+  if (issuerBal < requiredIssuerBal) {
+    console.error(
+      `[BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE] Issuer balance (${issuerBal.toString()} wei) ` +
+      `is below required Studio Devnet preflight amount (${requiredIssuerBal.toString()} wei).`
+    );
+    process.exit(1);
+  }
+
+  // Fund ephemeral challenger from issuer only if shortfall > 0
+  if (shortfall > 0n) {
+    await executeAndVerifyChallengerFunding({
+      issuerClient,
+      issuerAccount: issuerSigner.account,
+      challengerAddress: challengerAccount.address,
+      fundingAmount: shortfall,
+      requiredPostBalance: requiredFunding,
+    });
+  }
 
   // Zero/clear private key variable reference from memory
   challengerPrivKey = null;
@@ -269,28 +323,26 @@ async function runLiveIntegration(): Promise<void> {
     args: any[],
     val: bigint = 0n
   ): Promise<string> => {
-    const feeEstimate = await actingClient.estimateTransactionFees();
+    const fees = await actingClient.estimateTransactionFees();
     const hash = await actingClient.writeContract({
       address: addr as any,
       functionName: fn,
       args,
       value: val,
       fees: {
-        distribution: feeEstimate.distribution,
-        feeValue: feeEstimate.feeValue,
-        messageAllocations: feeEstimate.messageAllocations,
+        distribution: fees.distribution,
+        feeValue: fees.feeValue,
+        messageAllocations: fees.messageAllocations,
       },
     });
     const receipt = await actingClient.waitForTransactionReceipt({ hash });
-    if (!isSuccessful(receipt)) {
-      throw new Error(`Transaction ${fn} failed on-chain: tx ${hash}`);
-    }
+    verifyReceiptExecution(receipt, `execWrite ${fn}`);
     return hash;
   };
 
   const records: ScenarioRecord[] = [];
 
-  // Helper to run standard challenged scenario
+  // Helper to run standard challenged scenario (Scenarios 1..6)
   const runStandardChallengedScenario = async (
     spec: ScenarioCallSpec
   ): Promise<ScenarioRecord> => {
@@ -348,6 +400,17 @@ async function runLiveIntegration(): Promise<void> {
       args: [],
     });
 
+    if (!accounting || !(accounting as any).invariant_satisfied) {
+      throw new Error(`Scenario ${spec.scenarioId} failed: accounting invariant broken`);
+    }
+
+    if (
+      BigInt((accounting as any).locked_issuer_bonds) !== 0n ||
+      BigInt((accounting as any).locked_challenger_bonds) !== 0n
+    ) {
+      throw new Error(`Scenario ${spec.scenarioId} failed: bonds remained locked after terminal resolution`);
+    }
+
     const record: ScenarioRecord = {
       scenarioId: spec.scenarioId,
       name: spec.name,
@@ -363,8 +426,6 @@ async function runLiveIntegration(): Promise<void> {
     console.log(`[PASS] Scenario ${spec.scenarioId} completed: Status=${status}, Invariant=${record.accountingInvariant}`);
     return record;
   };
-
-  const specs = getLiveScenariosSpec();
 
   // Run Scenarios 1..6
   for (let i = 0; i < 6; i++) {
@@ -405,28 +466,51 @@ async function runLiveIntegration(): Promise<void> {
     throw new Error(`Scenario 7 setup failed: expected INCONCLUSIVE, got ${status7Before}`);
   }
 
-  // Second resolution must revert
-  let secondResolveFailed = false;
-  try {
-    await execWrite(issuerClient, addr7, "resolve_challenge", [1]);
-  } catch (err: any) {
-    secondResolveFailed = true;
-    const msg = String(err.message || err);
-    console.log(`Scenario 7: Re-resolve correctly rejected with: ${msg}`);
-  }
-
-  if (!secondResolveFailed) {
-    throw new Error("Scenario 7 FAILED: Re-resolving terminal epoch unexpectedly succeeded");
-  }
-
-  // Verify state remained unchanged after failed second call
-  const status7After = await issuerClient.readContract({
+  // Verify accounting after first resolution
+  const acct7First = await issuerClient.readContract({
     address: addr7 as any,
-    functionName: "get_current_status",
+    functionName: "get_accounting",
     args: [],
   });
-  if (status7After !== "INCONCLUSIVE") {
-    throw new Error(`Scenario 7 FAILED: State mutated on revert, got ${status7After}`);
+  if (!acct7First || !(acct7First as any).invariant_satisfied) {
+    throw new Error("Scenario 7 FAILED: accounting invariant broken after first resolution");
+  }
+  if (
+    BigInt((acct7First as any).locked_issuer_bonds) !== 0n ||
+    BigInt((acct7First as any).locked_challenger_bonds) !== 0n
+  ) {
+    throw new Error("Scenario 7 FAILED: bonds remained locked after first resolution");
+  }
+
+  // Second resolution must revert with contract error (non-CHALLENGED terminal state)
+  await expectContractExecutionError(
+    async () => {
+      return await execWrite(issuerClient, addr7, "resolve_challenge", [1]);
+    },
+    {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "CHALLENGED",
+      verifyStateUnchanged: async () => {
+        const status7After = await issuerClient.readContract({
+          address: addr7 as any,
+          functionName: "get_current_status",
+          args: [],
+        });
+        if (status7After !== "INCONCLUSIVE") {
+          throw new Error(`Scenario 7 FAILED: State mutated on revert, got ${status7After}`);
+        }
+      },
+    }
+  );
+
+  // Verify accounting after rejected second resolution
+  const acct7After = await issuerClient.readContract({
+    address: addr7 as any,
+    functionName: "get_accounting",
+    args: [],
+  });
+  if (!acct7After || !(acct7After as any).invariant_satisfied) {
+    throw new Error("Scenario 7 FAILED: accounting invariant broken after rejected second resolution");
   }
 
   records.push({
@@ -437,8 +521,8 @@ async function runLiveIntegration(): Promise<void> {
     publishTxHash: pubTx7,
     challengeTxHash: chalTx7,
     resolveTxHash: resTx7,
-    finalStatus: status7After as string,
-    accountingInvariant: true,
+    finalStatus: "INCONCLUSIVE",
+    accountingInvariant: Boolean((acct7After as any).invariant_satisfied),
   });
   console.log(`[PASS] Scenario 7 completed: Fresh contract ${addr7} re-resolution reverted cleanly; state preserved.`);
 
@@ -453,6 +537,18 @@ async function runLiveIntegration(): Promise<void> {
     DEFAULT_ISSUER_BOND
   );
   const cancelTx8 = await execWrite(issuerClient, addr8, "cancel_epoch", [1]);
+
+  const acct8Cancel = await issuerClient.readContract({
+    address: addr8 as any,
+    functionName: "get_accounting",
+    args: [],
+  });
+  if (!acct8Cancel || !(acct8Cancel as any).invariant_satisfied) {
+    throw new Error("Scenario 8 FAILED: accounting invariant broken after cancellation");
+  }
+  if (BigInt((acct8Cancel as any).total_credits) !== DEFAULT_ISSUER_BOND) {
+    throw new Error("Scenario 8 FAILED: total_credits mismatch after cancellation");
+  }
 
   const creditBefore = await issuerClient.readContract({
     address: addr8 as any,
@@ -473,25 +569,46 @@ async function runLiveIntegration(): Promise<void> {
     throw new Error(`Scenario 8 failed: credit after withdrawal is not 0`);
   }
 
-  const acct8 = await issuerClient.readContract({
+  const acct8First = await issuerClient.readContract({
     address: addr8 as any,
     functionName: "get_accounting",
     args: [],
   });
-  if (!(acct8 as any).invariant_satisfied) {
+  if (!acct8First || !(acct8First as any).invariant_satisfied) {
     throw new Error("Scenario 8 failed: accounting invariant broken after first withdrawal");
   }
-
-  let doubleWithdrawFailed = false;
-  try {
-    await execWrite(issuerClient, addr8, "withdraw_credit", []);
-  } catch (err: any) {
-    doubleWithdrawFailed = true;
-    console.log(`Scenario 8: Double withdrawal correctly rejected: ${err.message || err}`);
+  if (BigInt((acct8First as any).total_credits) !== 0n) {
+    throw new Error("Scenario 8 failed: total_credits not 0 after withdrawal");
   }
 
-  if (!doubleWithdrawFailed) {
-    throw new Error("Scenario 8 FAILED: Double withdrawal unexpectedly succeeded");
+  // Second withdrawal must revert because available credit is zero
+  await expectContractExecutionError(
+    async () => {
+      return await execWrite(issuerClient, addr8, "withdraw_credit", []);
+    },
+    {
+      expectedMethod: "withdraw_credit",
+      expectedErrorSubstring: "credit",
+      verifyStateUnchanged: async () => {
+        const creditFinal = await issuerClient.readContract({
+          address: addr8 as any,
+          functionName: "get_credit",
+          args: [issuerSigner.address],
+        });
+        if (BigInt(creditFinal as any) !== 0n) {
+          throw new Error("Scenario 8 failed: credit mutated after double withdrawal attempt");
+        }
+      },
+    }
+  );
+
+  const acct8Final = await issuerClient.readContract({
+    address: addr8 as any,
+    functionName: "get_accounting",
+    args: [],
+  });
+  if (!acct8Final || !(acct8Final as any).invariant_satisfied) {
+    throw new Error("Scenario 8 failed: accounting invariant broken after second withdrawal");
   }
 
   records.push({
@@ -503,7 +620,7 @@ async function runLiveIntegration(): Promise<void> {
     challengeTxHash: cancelTx8,
     resolveTxHash: withdrawTx8,
     finalStatus: "CANCELLED",
-    accountingInvariant: true,
+    accountingInvariant: Boolean((acct8Final as any).invariant_satisfied),
   });
   console.log(`[PASS] Scenario 8 completed: Single withdrawal succeeded and double withdrawal reverted cleanly.`);
 

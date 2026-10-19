@@ -324,10 +324,31 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 | Contract Unit Tests | `tests/direct/test_reservecovenant.py` | 76 | **PASSED** | Constructor bounds, schema validation, deterministic challenges, future-dated reports, ineligible reserves, semantic outcome consistency, prompt injection defense, settlements, invariants |
 | Signer & Guard Tests | `tests/direct/test_signer_resolver.py` | 6 | **PASSED** | Autonomous keychain signer, fail-closed guards, secret cleanliness, factory resolution |
 | **Total Direct Tests** | | **82** | **100% PASS** | Zero regressions across existing unit test suite |
-| Offline Harness (Python) | `tests/harness/test_live_harness_offline.py` | 4 | **PASSED** | Signer separation logic, immutable fixture URL validation, scenario specifications (`OFFLINE_HARNESS_VALIDATION_PASS`) |
-| Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 5 checks | **PASSED** | Pure offline harness validation, signer distinctness, dry-run fixture preparation (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Offline Harness (Python) | `tests/harness/test_live_harness_offline.py` | 10 | **PASSED** | Signer separation logic, distinct ephemeral challenger resolution, fail-closed guards, error classifications, accounting invariant logic (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Offline Harness (TypeScript) | `deploy/test_harness_offline.ts` | 12 checks | **PASSED** | Pure offline harness validation, signer distinctness, dynamic funding calculations, receipt verification, error classifications, strict fixture check & prepublish modes (`OFFLINE_HARNESS_VALIDATION_PASS`) |
+| Live Integration Launcher (Python) | `deploy/run_python_live_integration.ts` | Orchestration | **SKIPPED (0 writes)** | OS keychain issuer, ephemeral funded challenger, in-memory child injection, safe zero-write default |
 | Live Integration (Python) | `tests/integration/test_reservecovenant_live.py` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (gated by fixture publication) |
 | Live Integration (TypeScript) | `deploy/run_live_integration.ts` | 8 | **SKIPPED (0 writes)** | Implemented and offline-validated; not live-executed (0 transactions submitted) |
+
+---
+
+## Live-Harness Readiness & Publication Status
+
+- **Contract Repair Status**: Contract repair is verified offline with 82 passing direct tests.
+- **Immutable Hashes**:
+  - Contract (`contracts/reservecovenant.py`): `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
+  - Schema (`deploy/schema.json`): `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
+- **Live Harness Implementation**: Complete and offline-tested across 22 tests (10 Python + 12 TypeScript).
+- **Public Fixtures Status**: Fixtures are not public; placeholder branch references remain pending remote publication.
+- **Live Validator Scenarios**: Real live validator scenarios have NOT run in this pass.
+- **Validator Consensus**: Validator consensus has NOT been demonstrated on Studio Devnet.
+- **Canonical Redeployment**: Canonical redeployment has NOT occurred.
+- **Current Status**: **BLOCKED_PENDING_PUBLIC_FIXTURE_PUBLICATION**
+- **Historical Deployment**: **SUPERSEDED / NONCANONICAL** (`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`)
+- **GitHub Actions Status**: **PREPARED — NOT PUBLICLY EXECUTED**
+- **Portal Submission**: No portal submission has occurred.
+- **Network Writes & Deployments**: Exactly **zero** network writes and **zero** deployments executed.
+- **Authoritative Statement**: **No live validator-consensus result is claimed.**
 
 ---
 
@@ -347,23 +368,27 @@ npm run schema:check
 # 4. Run direct unit tests (exact existing 82 tests)
 npm run test:direct
 
-# 5. Run offline harness & signer separation validation (zero network writes)
+# 5. Run offline harness & signer separation validation (22 tests, zero network writes)
 npm run test:harness
 
-# 6. Verify fixture publication status (detects placeholder URLs)
+# 6. Verify fixture prepublish inspection (passes on internally consistent blocked state)
+npm run fixtures:prepublish
+
+# 7. Verify strict fixture publication check (fails closed with code 1 prior to publication)
 npm run fixtures:check
 
-# 7. Verify live integration skips safely without opt-in (0 transactions)
+# 8. Verify live integration skips safely without opt-in (0 transactions)
 npm run test:integration
+npm run test:integration:python:live
 npm run test:integration:live
 
-# 8. Typecheck TypeScript deployment tooling
+# 9. Typecheck TypeScript deployment tooling
 npx tsc --noEmit
 
-# 9. Check on-chain deployment status (reports superseded state)
+# 10. Check on-chain deployment status (reports superseded state)
 npm run verify:onchain
 
-# 10. Smoke read public views from Studio Devnet
+# 11. Smoke read public views from Studio Devnet
 npm run smoke:read
 ```
 
@@ -374,21 +399,23 @@ npm run smoke:read
 ```
 ReserveCovenant/
 ├── contracts/
-│   └── reservecovenant.py         # Repaired GenLayer Intelligent Contract
+│   └── reservecovenant.py              # Repaired GenLayer Intelligent Contract
 ├── deploy/
-│   ├── deployment_receipt.json    # Historical deployment metadata (superseded)
-│   ├── deployScript.ts            # Autonomous Studio Devnet deployer
-│   ├── fixture_url_validator.ts   # Strict immutable fixture URL validator
-│   ├── prepare_public_fixtures.ts # Two-commit fixture publication tool
-│   ├── run_canary.ts              # Disposable canary test
-│   ├── run_live_integration.ts   # Guarded live harness (distinct signers, fresh contracts)
-│   ├── schema.json                # ABI schema (15 methods)
-│   ├── signer.ts                  # OS keychain autonomous signer
-│   ├── smoke_read.ts              # Live contract view reader
-│   ├── test_harness_offline.ts    # Pure offline TypeScript harness validation
-│   └── verify_onchain.ts          # On-chain byte parity verifier
+│   ├── deployment_receipt.json         # Historical deployment metadata (superseded)
+│   ├── deployScript.ts                 # Autonomous Studio Devnet deployer
+│   ├── fixture_url_validator.ts        # Strict immutable fixture URL validator
+│   ├── harness_utils.ts                # Dynamic funding math, receipt validator, error classifier
+│   ├── prepare_public_fixtures.ts      # Two-commit fixture publication tool (check & prepublish)
+│   ├── run_canary.ts                   # Disposable canary test
+│   ├── run_live_integration.ts        # Guarded TypeScript live harness (distinct signers)
+│   ├── run_python_live_integration.ts  # Autonomous live launcher for Python live suite
+│   ├── schema.json                     # ABI schema (15 methods)
+│   ├── signer.ts                       # OS keychain autonomous signer
+│   ├── smoke_read.ts                   # Live contract view reader
+│   ├── test_harness_offline.ts         # Pure offline TypeScript harness validation (12 checks)
+│   └── verify_onchain.ts               # On-chain byte parity verifier
 ├── evidence/
-│   └── studio-dev.md              # Studio Devnet audit evidence & defect analysis
+│   └── studio-dev.md                   # Studio Devnet audit evidence & defect analysis
 ├── fixtures/
 │   ├── challenger-material-disclaimer.json
 │   ├── challenger-unsupported-claim.json
@@ -400,22 +427,22 @@ ReserveCovenant/
 │   ├── issuer-material-disclaimer.json
 │   └── issuer-upheld-evidence.json
 ├── scripts/
-│   └── run_fail_closed.cjs        # Cross-platform fail-closed script runner
+│   └── run_fail_closed.cjs             # Cross-platform fail-closed script runner
 ├── tests/
 │   ├── direct/
 │   │   ├── test_reservecovenant.py
 │   │   └── test_signer_resolver.py
 │   ├── harness/
-│   │   └── test_live_harness_offline.py
+│   │   └── test_live_harness_offline.py# Offline harness tests (10 tests)
 │   └── integration/
 │       ├── fixture_url_validator.py
-│       └── test_reservecovenant_live.py
+│       └── test_reservecovenant_live.py # Live integration suite (8 scenarios)
 ├── .github/
 │   └── workflows/
-│       └── verify.yml             # Prepared CI workflow (not publicly executed)
+│       └── verify.yml                  # Prepared CI workflow (not publicly executed)
 ├── .gitignore
 ├── gltest.config.yaml
-├── LICENSE                        # Apache-2.0
+├── LICENSE                             # Apache-2.0
 ├── package.json
 ├── package-lock.json
 ├── requirements.txt
