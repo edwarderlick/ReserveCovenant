@@ -28,6 +28,10 @@
  * (This is NOT a LIVE_VALIDATOR_CONSENSUS_PASS).
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as crypto from "node:crypto";
+
 import {
   assertSignerSeparation,
   getLiveScenariosSpec,
@@ -47,6 +51,7 @@ import {
   normalizeConsensusStatus,
   normalizeExecutionResult,
   deriveScenarioTransactionPlan,
+  deriveContinuationTransactionPlan,
   deriveChallengerTransactionCount,
   deriveTotalChallengerTransactionCount,
   calculateRequiredChallengerFunding,
@@ -58,7 +63,12 @@ import {
   ContractExecutionReceiptError,
   executeAndVerifyChallengerFunding,
   evaluateEconomicCleanup,
+  evaluateAggregateEvidence,
   buildExpectedCleanupManifest,
+  buildContinuationCleanupManifest,
+  verifyScenario5ResumeState,
+  waitForTransactionReceiptResilient,
+  isTerminalReceipt,
   WriteOperationError,
   getCleanupTargetKey,
   type ExpectedCleanupTarget,
@@ -69,7 +79,10 @@ import {
   type ValidatedReceiptSummary,
   type ValidatedNativeTransferSummary,
   type ChallengerFundingResult,
+  type AggregateEvidenceReport,
+  type ContinuationTransactionPlan,
 } from "./harness_utils.js";
+import { resolvePersistentChallengerSigner } from "./signer.js";
 import {
   evaluatePythonLauncherDisposition,
   buildPythonLiveEnvironment,
@@ -1762,12 +1775,407 @@ async function runOfflineHarnessTests(): Promise<void> {
   });
   assert(evalReport23Dust.liveReadinessStatus === "LIVE_READINESS_PASS", "23b. Bounded unavoidable dust must pass LIVE_READINESS");
 
-  console.log("\nAll 18 core repair checks + 23 native-transfer regression checks passed successfully.\n");
+  // --------------------------------------------------------------------------
+  // [24] Resilient Same-Hash Receipt Polling & Terminal State Detection
+  // --------------------------------------------------------------------------
+  console.log("\n[24] Testing Resilient Same-Hash Receipt Polling...");
+  assert(isTerminalReceipt({ status: 7, txExecutionResult: 1 }), "24a. FINALIZED + FINISHED_WITH_RETURN must be terminal");
+  assert(isTerminalReceipt({ statusName: "FINALIZED", txExecutionResultName: "FINISHED_WITH_RETURN" }), "24b. Named FINALIZED + FINISHED_WITH_RETURN must be terminal");
+  assert(isTerminalReceipt({ statusName: "ACCEPTED", txExecutionResultName: "FINISHED_WITH_ERROR" }), "24c. ACCEPTED + FINISHED_WITH_ERROR must be terminal");
+  assert(isTerminalReceipt({ status: 0 }), "24d. EVM failure (status 0) must be terminal");
+  assert(!isTerminalReceipt({ status: 1 }), "24e. Status 1 (PENDING) must not be terminal");
+  assert(!isTerminalReceipt(null), "24f. Null receipt must not be terminal");
+
+  // Test fallback polling recovery on transient transport error
+  let primaryFetchCalls = 0;
+  let fallbackCalls = 0;
+  const mockResilientClient = {
+    waitForTransactionReceipt: async () => {
+      primaryFetchCalls++;
+      throw new Error("fetch failed: transient transport ECONNRESET");
+    },
+    getTransaction: async (opts: { hash: string }) => {
+      fallbackCalls++;
+      return {
+        hash: opts.hash,
+        status: 7,
+        statusName: "FINALIZED",
+        txExecutionResult: 1,
+        txExecutionResultName: "FINISHED_WITH_RETURN",
+      };
+    },
+  };
+
+  const recoveredReceipt = await waitForTransactionReceiptResilient({
+    client: mockResilientClient,
+    hash: "0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97",
+    context: "test transient error recovery",
+    timeoutMs: 5000,
+    initialDelayMs: 10,
+    maxDelayMs: 50,
+  });
+  assert(
+    (recoveredReceipt as any).hash === "0x50968e391b70f3548a7c549e812404e49ab0e4d0d61e428c1d58b2ced3023f97",
+    "24g. Resilient polling must recover receipt via fallback getTransaction without duplicating transaction"
+  );
+  assert(primaryFetchCalls >= 1, "24h. Primary fetch must have been attempted");
+  assert(fallbackCalls >= 1, "24i. Fallback getTransaction must have been queried");
+
+  // Test timeout preserves hash and throws WriteOperationError
+  const mockTimeoutClient = {
+    waitForTransactionReceipt: async () => {
+      throw new Error("fetch failed: connection dropped");
+    },
+    getTransaction: async () => null,
+    getTransactionReceipt: async () => null,
+  };
+
+  let writeOpErrorCaught = false;
+  try {
+    await waitForTransactionReceiptResilient({
+      client: mockTimeoutClient,
+      hash: "0xdeadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678",
+      context: "test timeout preserves hash",
+      timeoutMs: 50,
+      initialDelayMs: 10,
+      maxDelayMs: 20,
+    });
+  } catch (err: unknown) {
+    if (err instanceof WriteOperationError) {
+      writeOpErrorCaught = true;
+      assert(
+        err.transactionHash === "0xdeadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678",
+        "24j. WriteOperationError must preserve exact transaction hash"
+      );
+    }
+  }
+  assert(writeOpErrorCaught, "24k. Bounded timeout must throw WriteOperationError preserving hash");
+
+  // --------------------------------------------------------------------------
+  // [25] Scenario 5 Resume-State Validation
+  // --------------------------------------------------------------------------
+  console.log("\n[25] Testing Scenario 5 Resume-State Validation...");
+  const validContractCode = fs.readFileSync(path.resolve(process.cwd(), "contracts/reservecovenant.py"), "utf8");
+  const validCodeSha = crypto.createHash("sha256").update(validContractCode).digest("hex");
+
+  const mockS5ClientValid = {
+    getContractCode: async () => validContractCode,
+    readContract: async ({ functionName }: { functionName: string }) => {
+      if (functionName === "get_current_status") return "OPEN";
+      if (functionName === "get_accounting") {
+        return {
+          contract_balance: 10000000000000000n,
+          locked_issuer_bonds: 10000000000000000n,
+          locked_challenger_bonds: 0n,
+          total_credits: 0n,
+          invariant_satisfied: true,
+        };
+      }
+      if (functionName === "get_active_epoch") {
+        return {
+          active: true,
+          epoch_id: 1,
+          status: "OPEN",
+          challenger: "0x0000000000000000000000000000000000000000",
+          snapshot_url: "https://example.com/snapshot.json",
+          snapshot_sha256: "0".repeat(64),
+          challenge_deadline: 9999999999,
+        };
+      }
+      throw new Error(`Unexpected function: ${functionName}`);
+    },
+  };
+
+  const s5State = await verifyScenario5ResumeState(
+    mockS5ClientValid,
+    "0xbd80518107647cD17c1Af617c5a50fc5b9B037ee" as Address,
+    validCodeSha
+  );
+  assert(s5State.status === "OPEN", "25a. Status must be OPEN");
+  assert(s5State.invariantSatisfied === true, "25b. Invariant must be satisfied");
+  assert(s5State.activeEpochId === 1, "25c. Active epoch must be 1");
+  assert(s5State.contractBalanceWei === 10000000000000000n, "25d. Balance must be 0.01 GEN");
+
+  // Test invalid code SHA fails closed
+  let codeMismatchCaught = false;
+  try {
+    await verifyScenario5ResumeState(
+      { ...mockS5ClientValid, getContractCode: async () => "tampered code" },
+      "0xbd80518107647cD17c1Af617c5a50fc5b9B037ee" as Address,
+      validCodeSha
+    );
+  } catch (err: any) {
+    codeMismatchCaught = true;
+    assert(err.message.includes("deployed code SHA-256"), "25e. Code mismatch must report error");
+  }
+  assert(codeMismatchCaught, "25f. Tampered contract code must fail closed");
+
+  // Test already-challenged epoch fails closed
+  let activeChallengeCaught = false;
+  try {
+    const mockChallengedClient = {
+      ...mockS5ClientValid,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === "get_current_status") return "OPEN";
+        if (functionName === "get_accounting") {
+          return {
+            contract_balance: 10000000000000000n,
+            locked_issuer_bonds: 10000000000000000n,
+            locked_challenger_bonds: 0n,
+            total_credits: 0n,
+            invariant_satisfied: true,
+          };
+        }
+        if (functionName === "get_active_epoch") {
+          return {
+            active: true,
+            epoch_id: 1,
+            status: "OPEN",
+            challenger: "0x1111111111111111111111111111111111111111", // Already active
+          };
+        }
+        return null;
+      },
+    };
+    await verifyScenario5ResumeState(
+      mockChallengedClient,
+      "0xbd80518107647cD17c1Af617c5a50fc5b9B037ee" as Address,
+      validCodeSha
+    );
+  } catch (err: any) {
+    activeChallengeCaught = true;
+    assert(err.message.includes("challenge is already active"), "25g. Active challenge must fail closed");
+  }
+  assert(activeChallengeCaught, "25h. Already-challenged Scenario 5 must fail closed");
+
+  // --------------------------------------------------------------------------
+  // [26] Subset Continuation Transaction Planning
+  // --------------------------------------------------------------------------
+  console.log("\n[26] Testing Subset Continuation Transaction Planning...");
+  const contPlan = deriveContinuationTransactionPlan();
+  assert(contPlan.challengeBondTransactionCount === 3n, "26a. Continuation requires 3 challenge bonds (S5, S6, S7)");
+  assert(contPlan.challengerCleanupWithdrawalCount === 2n, "26b. Continuation requires 2 challenger withdrawals (S6, S7)");
+  assert(contPlan.challengerSweepTransactionCount === 1n, "26c. Continuation requires 1 challenger sweep");
+  assert(contPlan.challengerSignedTransactionCount === 6n, "26d. Continuation requires 6 challenger txs (3 bonds + 2 withdrawals + 1 sweep)");
+  assert(contPlan.disposableDeployCount === 3n, "26e. Continuation deploys 3 instances (S6, S7, S8)");
+  assert(contPlan.issuerBondTransactionCount === 3n, "26f. Continuation publishes 3 epochs (S6, S7, S8)");
+  assert(contPlan.issuerCleanupWithdrawalCount === 3n, "26g. Continuation requires 3 issuer withdrawals (S5, S6, S7)");
+  assert(contPlan.issuerSignedTransactionCount === 13n, "26h. Continuation requires 13 issuer txs");
+  assert(contPlan.expectedChallengerRecoverableCreditsWei === 10000000000000000n, "26i. Challenger credits = 0.010 GEN");
+  assert(contPlan.expectedIssuerRecoverableCreditsWei === 35000000000000000n, "26j. Issuer credits = 0.035 GEN");
+  assert(contPlan.expectedTotalContractCreditsWei === 45000000000000000n, "26k. Total continuation credits = 0.045 GEN");
+  assert(contPlan.aggregateChallengerRecoverableCreditsWei === 66000000000000000n, "26l. Aggregate challenger credits = 0.066 GEN");
+  assert(contPlan.aggregateIssuerRecoverableCreditsWei === 39000000000000000n, "26m. Aggregate issuer credits = 0.039 GEN");
+  assert(contPlan.aggregateTotalContractCreditsWei === 105000000000000000n, "26n. Aggregate total credits = 0.105 GEN");
+  assert(contPlan.aggregateCleanupTargetsCount === 13n, "26o. Aggregate cleanup targets count = 13");
+
+  // --------------------------------------------------------------------------
+  // [27] Subset Continuation Cleanup Manifest
+  // --------------------------------------------------------------------------
+  console.log("\n[27] Testing Subset Continuation Cleanup Manifest...");
+  const s5Dummy = "0xbd80518107647cD17c1Af617c5a50fc5b9B037ee" as Address;
+  const mockDeploys = [
+    { scenarioId: 6, contractAddress: "0x6666666666666666666666666666666666666666" as Address },
+    { scenarioId: 7, contractAddress: "0x7777777777777777777777777777777777777777" as Address },
+    { scenarioId: 8, contractAddress: "0x8888888888888888888888888888888888888888" as Address },
+  ];
+  const contManifest = buildContinuationCleanupManifest(s5Dummy, mockDeploys);
+  assert(contManifest.length === 5, `27a. Expected 5 continuation cleanup targets, got ${contManifest.length}`);
+
+  // Target 9: Scenario 5 Issuer
+  const t9 = contManifest.find((t) => t.scenarioId === 5 && t.party === "issuer");
+  assert(t9 !== undefined && t9.expectedCreditWei === 15000000000000000n, "27b. Target 9 must be S5 Issuer 0.015 GEN");
+
+  // Targets 10 & 11: Scenario 6 Challenger & Issuer
+  const t10 = contManifest.find((t) => t.scenarioId === 6 && t.party === "challenger");
+  const t11 = contManifest.find((t) => t.scenarioId === 6 && t.party === "issuer");
+  assert(t10 !== undefined && t10.expectedCreditWei === 5000000000000000n, "27c. Target 10 must be S6 Challenger 0.005 GEN");
+  assert(t11 !== undefined && t11.expectedCreditWei === 10000000000000000n, "27d. Target 11 must be S6 Issuer 0.010 GEN");
+
+  // Targets 12 & 13: Scenario 7 Challenger & Issuer
+  const t12 = contManifest.find((t) => t.scenarioId === 7 && t.party === "challenger");
+  const t13 = contManifest.find((t) => t.party === "issuer" && t.scenarioId === 7);
+  assert(t12 !== undefined && t12.expectedCreditWei === 5000000000000000n, "27e. Target 12 must be S7 Challenger 0.005 GEN");
+  assert(t13 !== undefined && t13.expectedCreditWei === 10000000000000000n, "27f. Target 13 must be S7 Issuer 0.010 GEN");
+
+  // --------------------------------------------------------------------------
+  // [28] Persistent Challenger Keychain Resolution & Signer Separation
+  // --------------------------------------------------------------------------
+  console.log("\n[28] Testing Persistent Challenger Keychain Resolution...");
+  const issuerAddr = "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD";
+  const challengerSigner = await resolvePersistentChallengerSigner(issuerAddr, {
+    silent: true,
+    checkBalance: false,
+  });
+  assert(challengerSigner.accountName === "reservecovenant-challenger", "28a. Account name must match");
+  assert(typeof challengerSigner.address === "string" && challengerSigner.address.startsWith("0x"), "28b. Address must be hex");
+  assert(challengerSigner.address.toLowerCase() !== issuerAddr.toLowerCase(), "28c. Persistent challenger must be distinct from issuer");
+
+  // Signer separation failure assertion
+  let separationViolationCaught = false;
+  try {
+    await resolvePersistentChallengerSigner(challengerSigner.address, {
+      silent: true,
+      checkBalance: false,
+    });
+  } catch (err: any) {
+    separationViolationCaught = true;
+    assert(err.message.includes("Signer separation violated"), "28d. Separation error message required");
+  }
+  assert(separationViolationCaught, "28e. Matching issuer and challenger addresses must fail closed");
+
+  // --------------------------------------------------------------------------
+  // [29] Aggregate Evidence Evaluation
+  // --------------------------------------------------------------------------
+  console.log("\n[29] Testing Aggregate Evidence Evaluation...");
+  const mockContinuationRecords = [
+    { scenarioId: 5, name: "S5", contractAddress: s5Dummy, finalStatus: "UPHELD", accountingInvariant: true },
+    { scenarioId: 6, name: "S6", contractAddress: mockDeploys[0].contractAddress, finalStatus: "INCONCLUSIVE", accountingInvariant: true },
+    { scenarioId: 7, name: "S7", contractAddress: mockDeploys[1].contractAddress, finalStatus: "INCONCLUSIVE", accountingInvariant: true },
+    { scenarioId: 8, name: "S8", contractAddress: mockDeploys[2].contractAddress, finalStatus: "CANCELLED", accountingInvariant: true },
+  ];
+
+  const mockReceiptSummarySuccess: ValidatedReceiptSummary = {
+    txHash: "0x" + "a".repeat(64),
+    status: "FINALIZED",
+    executionResult: "FINISHED_WITH_RETURN",
+    rawReceipt: {
+      hash: "0x" + "a".repeat(64),
+      status: 7,
+      statusName: "FINALIZED",
+      txExecutionResult: 1,
+      txExecutionResultName: "FINISHED_WITH_RETURN",
+    },
+  };
+
+  const mockContinuationCleanupRecords: CleanupPartyResult[] = [
+    {
+      scenarioId: 5,
+      contractAddress: s5Dummy,
+      party: "issuer",
+      status: "WITHDRAWN",
+      expectedCredit: 15000000000000000n,
+      observedCredit: 15000000000000000n,
+      transactionHash: "0x" + "a".repeat(64),
+      receiptStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: mockReceiptSummarySuccess,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    },
+    {
+      scenarioId: 6,
+      contractAddress: mockDeploys[0].contractAddress,
+      party: "challenger",
+      status: "WITHDRAWN",
+      expectedCredit: 5000000000000000n,
+      observedCredit: 5000000000000000n,
+      transactionHash: "0x" + "a".repeat(64),
+      receiptStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: mockReceiptSummarySuccess,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    },
+    {
+      scenarioId: 6,
+      contractAddress: mockDeploys[0].contractAddress,
+      party: "issuer",
+      status: "WITHDRAWN",
+      expectedCredit: 10000000000000000n,
+      observedCredit: 10000000000000000n,
+      transactionHash: "0x" + "a".repeat(64),
+      receiptStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: mockReceiptSummarySuccess,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    },
+    {
+      scenarioId: 7,
+      contractAddress: mockDeploys[1].contractAddress,
+      party: "challenger",
+      status: "WITHDRAWN",
+      expectedCredit: 5000000000000000n,
+      observedCredit: 5000000000000000n,
+      transactionHash: "0x" + "a".repeat(64),
+      receiptStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: mockReceiptSummarySuccess,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    },
+    {
+      scenarioId: 7,
+      contractAddress: mockDeploys[1].contractAddress,
+      party: "issuer",
+      status: "WITHDRAWN",
+      expectedCredit: 10000000000000000n,
+      observedCredit: 10000000000000000n,
+      transactionHash: "0x" + "a".repeat(64),
+      receiptStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_RETURN",
+      receiptSummary: mockReceiptSummarySuccess,
+      postWithdrawalCredit: 0n,
+      accountingInvariantSatisfied: true,
+    },
+  ];
+
+  const mockSweepRecordZero: SweepResultRecord = {
+    disposition: "COMPLETED",
+    preSweepBalanceWei: 10000000000000000n,
+    attemptedSweepAmountWei: 10000000000000000n,
+    sweepTransactionHash: "0x" + "b".repeat(64),
+    receiptStatus: "FINALIZED",
+    executionResult: "NOT_VOTED",
+    postSweepObservedResidualBalanceWei: 0n,
+  };
+
+  const aggReport = evaluateAggregateEvidence({
+    historicalScenarioCount: 4,
+    historicalCleanupCount: 8,
+    historicalChallengerRecoveredWei: 56000000000000000n, // 0.056 GEN
+    historicalIssuerRecoveredWei: 4000000000000000n, // 0.004 GEN
+    continuationRecords: mockContinuationRecords as any,
+    continuationCleanupRecords: mockContinuationCleanupRecords,
+    continuationTargets: contManifest,
+    persistentChallengerResidualWei: 0n,
+    sweepRecord: mockSweepRecordZero,
+  });
+
+  assert(aggReport.aggregateScenariosStatus === "AGGREGATE_PRIMARY_SCENARIOS_PASS", "29a. Aggregate scenarios status must PASS");
+  assert(aggReport.aggregateCleanupStatus === "AGGREGATE_CONTRACT_ECONOMIC_CLEANUP_PASS", "29b. Aggregate cleanup status must PASS");
+  assert(aggReport.currentChallengerCleanupStatus === "CURRENT_CHALLENGER_CLEANUP_PASS", "29c. Current challenger residual must PASS");
+  assert(aggReport.aggregateLiveReadinessStatus === "AGGREGATE_LIVE_READINESS_PASS", "29d. Aggregate live readiness must PASS");
+  assert(aggReport.completedScenariosCount === 8, "29e. Completed scenarios count must be 8");
+  assert(aggReport.completedCleanupTargetsCount === 13, "29f. Completed cleanup targets count must be 13");
+  assert(aggReport.totalChallengerRecoveredWei === 66000000000000000n, "29g. Total challenger recovered must be 0.066 GEN");
+  assert(aggReport.totalIssuerRecoveredWei === 39000000000000000n, "29h. Total issuer recovered must be 0.039 GEN");
+  assert(aggReport.totalContractRecoveredWei === 105000000000000000n, "29i. Total contract recovered must be 0.105 GEN");
+  assert(aggReport.persistentChallengerResidualWei === 0n, "29j. Persistent residual must be 0 wei");
+
+  // Non-zero persistent residual blocks readiness
+  const aggReportResidualFail = evaluateAggregateEvidence({
+    historicalScenarioCount: 4,
+    historicalCleanupCount: 8,
+    historicalChallengerRecoveredWei: 56000000000000000n,
+    historicalIssuerRecoveredWei: 4000000000000000n,
+    continuationRecords: mockContinuationRecords as any,
+    continuationCleanupRecords: mockContinuationCleanupRecords,
+    continuationTargets: contManifest,
+    persistentChallengerResidualWei: 12345n, // Non-zero residual
+    sweepRecord: mockSweepRecordZero,
+  });
+  assert(aggReportResidualFail.currentChallengerCleanupStatus === "CURRENT_CHALLENGER_CLEANUP_FAIL", "29k. Non-zero residual must fail");
+  assert(aggReportResidualFail.aggregateLiveReadinessStatus === "AGGREGATE_LIVE_READINESS_BLOCKED", "29l. Non-zero residual must block readiness");
+
+  console.log("\nAll 18 core repair checks + 23 native-transfer regression checks + 6 continuation checks passed successfully.\n");
   console.log("=================================================");
   console.log(">>> OFFLINE_HARNESS_VALIDATION_PASS <<<");
   console.log("Harness logic, authoritative SDK status mappings,");
   console.log("dual-party credit recovery, dynamic funding,");
-  console.log("receipt verification, error classification, and");
+  console.log("receipt verification, error classification,");
+  console.log("continuation plan, resilient polling, and");
   console.log("scenario specifications verified offline.");
   console.log("(Zero deployments, zero transactions submitted).");
   console.log("=================================================");

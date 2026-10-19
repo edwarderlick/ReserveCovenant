@@ -22,7 +22,7 @@ import type {
   TransactionFeeEstimate,
 } from "genlayer-js/types";
 import type { Address, Hash, Account, Hex } from "viem";
-import type { ScenarioCallSpec } from "./run_live_integration.js";
+import type { ScenarioCallSpec, ScenarioRecord } from "./run_live_integration.js";
 
 export type SupportedGenLayerClient = ReturnType<typeof createClient>;
 
@@ -551,6 +551,195 @@ export class WriteOperationError extends Error {
     this.originalError = params.originalError;
     Object.setPrototypeOf(this, WriteOperationError.prototype);
   }
+}
+
+export interface AccountingData {
+  contract_balance: bigint;
+  locked_issuer_bonds: bigint;
+  locked_challenger_bonds: bigint;
+  total_credits: bigint;
+  invariant_satisfied: boolean;
+}
+
+export function parseAccounting(val: unknown): AccountingData {
+  if (val && typeof val === "object" && "invariant_satisfied" in val) {
+    const o = val as Record<string, unknown>;
+    return {
+      contract_balance: BigInt(String(o.contract_balance ?? 0)),
+      locked_issuer_bonds: BigInt(String(o.locked_issuer_bonds ?? 0)),
+      locked_challenger_bonds: BigInt(String(o.locked_challenger_bonds ?? 0)),
+      total_credits: BigInt(String(o.total_credits ?? 0)),
+      invariant_satisfied: Boolean(o.invariant_satisfied),
+    };
+  }
+  throw new Error("Invalid accounting data shape returned from contract");
+}
+
+export function parseCredit(val: unknown): bigint {
+  return BigInt(String(val ?? 0));
+}
+
+export interface ResilientReceiptPollingOptions {
+  client: SupportedGenLayerClient | any;
+  hash: Hash | string;
+  context: string;
+  timeoutMs?: number; // default: 180_000 (3 minutes)
+  initialDelayMs?: number; // default: 2_000
+  maxDelayMs?: number; // default: 10_000
+  backoffFactor?: number; // default: 1.5
+}
+
+/**
+ * Checks if a transaction or receipt object represents a terminal on-chain state:
+ * - FINISHED_WITH_RETURN or FINISHED_WITH_ERROR execution results.
+ * - FINALIZED or ACCEPTED consensus statuses.
+ * - Standard EVM failure (status 0).
+ */
+export function isTerminalReceipt(receipt: unknown): boolean {
+  if (!receipt || typeof receipt !== "object") return false;
+  const rec = receipt as Record<string, unknown>;
+
+  // 1. txExecutionResult
+  const rawExec = rec.txExecutionResultName !== undefined ? rec.txExecutionResultName : rec.txExecutionResult;
+  if (rawExec !== undefined && rawExec !== null) {
+    try {
+      const normalizedExec = normalizeExecutionResult(rawExec);
+      if (normalizedExec === "FINISHED_WITH_RETURN" || normalizedExec === "FINISHED_WITH_ERROR") {
+        return true;
+      }
+    } catch {
+      // not recognized yet
+    }
+  }
+
+  // 2. consensus status
+  const rawStatus = rec.statusName !== undefined
+    ? rec.statusName
+    : rec.status_name !== undefined
+    ? rec.status_name
+    : rec.status;
+  if (rawStatus !== undefined && rawStatus !== null) {
+    try {
+      const normalizedStatus = normalizeConsensusStatus(rawStatus);
+      if (normalizedStatus === "FINALIZED" || normalizedStatus === "ACCEPTED") {
+        return true;
+      }
+    } catch {
+      // not recognized yet
+    }
+  }
+
+  // 3. EVM status check (status 0 / "0x0" is EVM failure; status 1 / "0x1" with receipt fields is EVM success)
+  if (rec.status === 0 || rec.status === "0x0") {
+    return true;
+  }
+  if (rec.status === 1 || rec.status === "0x1") {
+    if (rec.value_credited !== undefined || rec.contractAddress === null || rec.blockNumber !== undefined || rec.transactionHash !== undefined) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Resilient receipt polling that never discards or duplicates transaction hashes:
+ * 1. A returned transaction hash must never be discarded.
+ * 2. Retries receipt reads for the same hash using bounded exponential backoff.
+ * 3. Uses multiple read-only fallbacks:
+ *    - client.waitForTransactionReceipt
+ *    - eth_getTransactionByHash / client.getTransaction
+ *    - eth_getTransactionReceipt / client.getTransactionReceipt
+ * 4. Never resubmits a write merely because receipt fetching failed.
+ * 5. Continues polling until terminal receipt found or bounded timeout expires.
+ * 6. On timeout, preserves the hash and stops without duplicating the transaction.
+ */
+export async function waitForTransactionReceiptResilient(
+  options: ResilientReceiptPollingOptions
+): Promise<GenLayerReceiptLike> {
+  const {
+    client,
+    hash,
+    context,
+    timeoutMs = 180_000,
+    initialDelayMs = 2_000,
+    maxDelayMs = 10_000,
+    backoffFactor = 1.5,
+  } = options;
+
+  const hashStr = String(hash);
+  const startTime = Date.now();
+  let currentDelay = initialDelayMs;
+  let lastError: unknown = null;
+
+  while (Date.now() - startTime < timeoutMs) {
+    // Fallback 1: SDK waitForTransactionReceipt
+    try {
+      if (typeof client.waitForTransactionReceipt === "function") {
+        const receipt = await client.waitForTransactionReceipt({
+          hash: hashStr as any,
+          retries: 1,
+          interval: 1500,
+        });
+        if (receipt && isTerminalReceipt(receipt)) {
+          return receipt as GenLayerReceiptLike;
+        }
+      }
+    } catch (err: unknown) {
+      lastError = err;
+    }
+
+    // Fallback 2: Query by transaction hash (eth_getTransactionByHash / client.getTransaction)
+    try {
+      let tx: any = null;
+      if (typeof client.getTransaction === "function") {
+        tx = await client.getTransaction({ hash: hashStr as any });
+      } else if (typeof client.request === "function") {
+        tx = await client.request({
+          method: "eth_getTransactionByHash",
+          params: [hashStr],
+        });
+      }
+      if (tx && isTerminalReceipt(tx)) {
+        return tx as GenLayerReceiptLike;
+      }
+    } catch (err: unknown) {
+      lastError = err;
+    }
+
+    // Fallback 3: Query receipt (eth_getTransactionReceipt / client.getTransactionReceipt)
+    try {
+      let receipt: any = null;
+      if (typeof client.getTransactionReceipt === "function") {
+        receipt = await client.getTransactionReceipt({ hash: hashStr as any });
+      } else if (typeof client.request === "function") {
+        receipt = await client.request({
+          method: "eth_getTransactionReceipt",
+          params: [hashStr],
+        });
+      }
+      if (receipt && isTerminalReceipt(receipt)) {
+        return receipt as GenLayerReceiptLike;
+      }
+    } catch (err: unknown) {
+      lastError = err;
+    }
+
+    const elapsed = Date.now() - startTime;
+    const remaining = timeoutMs - elapsed;
+    if (remaining <= 0) break;
+
+    const sleepDuration = Math.min(currentDelay, remaining);
+    await new Promise((resolve) => setTimeout(resolve, sleepDuration));
+    currentDelay = Math.min(Math.round(currentDelay * backoffFactor), maxDelayMs);
+  }
+
+  // Timeout reached: Fail closed while strictly preserving transactionHash
+  throw new WriteOperationError({
+    message: `waitForTransactionReceiptResilient timed out after ${timeoutMs}ms on '${context}' (tx ${hashStr}). Transaction hash preserved; write must NOT be duplicated.`,
+    transactionHash: hashStr,
+    originalError: lastError,
+  });
 }
 
 /**
@@ -1111,7 +1300,11 @@ export async function executeAndVerifyChallengerFunding(
     chain: null,
   });
 
-  const receipt = await issuerClient.waitForTransactionReceipt({ hash: fundTxHash });
+  const receipt = await waitForTransactionReceiptResilient({
+    client: issuerClient,
+    hash: fundTxHash,
+    context: "challenger funding transaction",
+  });
 
   const postBalance = await issuerClient.getBalance({ address: challengerAddress });
   console.log(`[funding] Verified challenger post-funding balance: ${postBalance.toString()} wei`);
@@ -1271,6 +1464,7 @@ export interface SweepResultRecord {
   estimatedFeeWei?: bigint;
   attemptedSweepAmountWei?: bigint;
   sweepTransactionHash?: Hash | string;
+  dustSweepTransactionHash?: Hash | string;
   receiptStatus?: string;
   executionResult?: string;
   receiptSummary?: ValidatedReceiptSummary | ValidatedNativeTransferSummary;
@@ -1637,5 +1831,371 @@ export function evaluateEconomicCleanup(options: EvaluateCleanupOptions): Econom
     sweepRecord,
     unresolvedCreditsWei: unresolvedCredits,
     unresolvedContractAddresses: Array.from(unresolvedAddresses),
+  };
+}
+
+// ============================================================================
+// 7. Targeted Continuation Support (Scenarios 5–8)
+// ============================================================================
+
+export interface Scenario5ResumeStateResult {
+  address: Address;
+  codeSha256: string;
+  status: string;
+  contractBalanceWei: bigint;
+  lockedIssuerBondsWei: bigint;
+  lockedChallengerBondsWei: bigint;
+  invariantSatisfied: boolean;
+  activeEpochId: number;
+  activeEpochStatus: string;
+  activeEpochChallenger: string;
+  snapshotSha256: string;
+  snapshotUrl: string;
+  challengeDeadline: number;
+}
+
+/**
+ * Validates the on-chain state of Scenario 5 before resumption:
+ * 1. Byte-for-byte deployed code identity matches local contract SHA-256.
+ * 2. Contract status is OPEN.
+ * 3. Issuer bond is locked exactly once (0.01 GEN).
+ * 4. Locked challenger bonds is 0.
+ * 5. Total credits is 0.
+ * 6. Accounting invariant is satisfied (true).
+ * 7. Active epoch is epoch 1, status OPEN, with no challenger attached.
+ */
+export async function verifyScenario5ResumeState(
+  client: any,
+  scenario5Address: Address,
+  expectedCodeSha: string = "590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a",
+  expectedIssuerBond: bigint = 10000000000000000n
+): Promise<Scenario5ResumeStateResult> {
+  let code: string = "";
+  if (typeof client.getContractCode === "function") {
+    code = await client.getContractCode(scenario5Address);
+  } else if (typeof client.request === "function") {
+    code = await client.request({ method: "gen_getContractCode", params: [scenario5Address] });
+  }
+
+  const crypto = await import("node:crypto");
+  const codeSha = crypto.createHash("sha256").update(code).digest("hex");
+  if (codeSha !== expectedCodeSha) {
+    throw new Error(
+      `Scenario 5 resume state validation failed: deployed code SHA-256 (${codeSha}) does not match expected (${expectedCodeSha})`
+    );
+  }
+
+  const status = await client.readContract({
+    address: scenario5Address,
+    functionName: "get_current_status",
+    args: [],
+  });
+  if (status !== "OPEN") {
+    throw new Error(
+      `Scenario 5 resume state validation failed: expected status 'OPEN', got '${status}'`
+    );
+  }
+
+  const acctRaw = await client.readContract({
+    address: scenario5Address,
+    functionName: "get_accounting",
+    args: [],
+  });
+  const acct = parseAccounting(acctRaw);
+  if (!acct.invariant_satisfied) {
+    throw new Error("Scenario 5 resume state validation failed: accounting invariant broken");
+  }
+  if (acct.contract_balance !== expectedIssuerBond) {
+    throw new Error(
+      `Scenario 5 resume state validation failed: contract balance (${acct.contract_balance.toString()} wei) does not match expected issuer bond (${expectedIssuerBond.toString()} wei)`
+    );
+  }
+  if (acct.locked_issuer_bonds !== expectedIssuerBond) {
+    throw new Error(
+      `Scenario 5 resume state validation failed: locked issuer bonds (${acct.locked_issuer_bonds.toString()} wei) does not match expected (${expectedIssuerBond.toString()} wei)`
+    );
+  }
+  if (acct.locked_challenger_bonds !== 0n) {
+    throw new Error(
+      `Scenario 5 resume state validation failed: locked challenger bonds is non-zero (${acct.locked_challenger_bonds.toString()} wei)`
+    );
+  }
+  if (acct.total_credits !== 0n) {
+    throw new Error(
+      `Scenario 5 resume state validation failed: total credits is non-zero (${acct.total_credits.toString()} wei)`
+    );
+  }
+
+  const ep = await client.readContract({
+    address: scenario5Address,
+    functionName: "get_active_epoch",
+    args: [],
+  });
+  if (!ep || !ep.active) {
+    throw new Error("Scenario 5 resume state validation failed: epoch 1 is not active");
+  }
+  if (ep.epoch_id !== 1 || ep.status !== "OPEN") {
+    throw new Error(
+      `Scenario 5 resume state validation failed: unexpected epoch id (${ep.epoch_id}) or status (${ep.status})`
+    );
+  }
+  const zeroAddr = "0x0000000000000000000000000000000000000000";
+  if (ep.challenger && ep.challenger.toLowerCase() !== zeroAddr) {
+    throw new Error(
+      `Scenario 5 resume state validation failed: challenge is already active by ${ep.challenger}`
+    );
+  }
+
+  return {
+    address: scenario5Address,
+    codeSha256: codeSha,
+    status: status as string,
+    contractBalanceWei: acct.contract_balance,
+    lockedIssuerBondsWei: acct.locked_issuer_bonds,
+    lockedChallengerBondsWei: acct.locked_challenger_bonds,
+    invariantSatisfied: acct.invariant_satisfied,
+    activeEpochId: Number(ep.epoch_id),
+    activeEpochStatus: String(ep.status),
+    activeEpochChallenger: String(ep.challenger),
+    snapshotSha256: String(ep.snapshot_sha256),
+    snapshotUrl: String(ep.snapshot_url),
+    challengeDeadline: Number(ep.challenge_deadline),
+  };
+}
+
+export interface ContinuationTransactionPlan {
+  challengeBondTransactionCount: bigint;
+  challengerCleanupWithdrawalCount: bigint;
+  challengerSweepTransactionCount: bigint;
+  challengerSignedTransactionCount: bigint;
+  disposableDeployCount: bigint;
+  issuerBondTransactionCount: bigint;
+  primaryIssuerSignedTransactionCount: bigint;
+  issuerCleanupWithdrawalCount: bigint;
+  issuerSignedTransactionCount: bigint;
+  expectedChallengerRecoverableCreditsWei: bigint;
+  expectedIssuerRecoverableCreditsWei: bigint;
+  expectedRemainingContractCreditsWei: bigint;
+  expectedTotalContractCreditsWei: bigint;
+  aggregateChallengerRecoverableCreditsWei: bigint;
+  aggregateIssuerRecoverableCreditsWei: bigint;
+  aggregateTotalContractCreditsWei: bigint;
+  aggregateCleanupTargetsCount: bigint;
+}
+
+export function deriveContinuationTransactionPlan(
+  bonds = {
+    issuerBond: 10000000000000000n, // 0.01 GEN
+    challengerBond: 5000000000000000n, // 0.005 GEN
+    treasuryBps: 1000n, // 10.00%
+  }
+): ContinuationTransactionPlan {
+  const challengerRemainingCredits = bonds.challengerBond + bonds.challengerBond; // 0.010 GEN (S6 + S7)
+  const issuerRemainingCredits =
+    (bonds.issuerBond + bonds.challengerBond) + // S5: 0.015 GEN
+    bonds.issuerBond + // S6: 0.010 GEN
+    bonds.issuerBond; // S7: 0.010 GEN = 0.035 GEN
+
+  const totalRemainingCredits = challengerRemainingCredits + issuerRemainingCredits; // 0.045 GEN
+
+  const treasuryShare = (bonds.issuerBond * bonds.treasuryBps) / 10000n; // 0.001 GEN
+  const challengerShare = bonds.challengerBond + (bonds.issuerBond - treasuryShare); // 0.014 GEN
+  const s1to4ChallengerCredits = 4n * challengerShare; // 0.056 GEN
+  const s1to4IssuerCredits = 4n * treasuryShare; // 0.004 GEN
+  const s1to4TotalCredits = s1to4ChallengerCredits + s1to4IssuerCredits; // 0.060 GEN
+
+  return {
+    challengeBondTransactionCount: 3n,
+    challengerCleanupWithdrawalCount: 2n,
+    challengerSweepTransactionCount: 1n,
+    challengerSignedTransactionCount: 6n,
+    disposableDeployCount: 3n,
+    issuerBondTransactionCount: 3n,
+    primaryIssuerSignedTransactionCount: 10n,
+    issuerCleanupWithdrawalCount: 3n,
+    issuerSignedTransactionCount: 13n,
+    expectedChallengerRecoverableCreditsWei: challengerRemainingCredits,
+    expectedIssuerRecoverableCreditsWei: issuerRemainingCredits,
+    expectedRemainingContractCreditsWei: totalRemainingCredits,
+    expectedTotalContractCreditsWei: totalRemainingCredits,
+    aggregateChallengerRecoverableCreditsWei: s1to4ChallengerCredits + challengerRemainingCredits,
+    aggregateIssuerRecoverableCreditsWei: s1to4IssuerCredits + issuerRemainingCredits,
+    aggregateTotalContractCreditsWei: s1to4TotalCredits + totalRemainingCredits,
+    aggregateCleanupTargetsCount: 13n,
+  };
+}
+
+export function buildContinuationCleanupManifest(
+  scenario5Address: Address,
+  deployedS6to8: { scenarioId: number; contractAddress: Address }[],
+  bonds = {
+    issuerBond: 10000000000000000n,
+    challengerBond: 5000000000000000n,
+    treasuryBps: 1000n,
+  }
+): ExpectedCleanupTarget[] {
+  const manifest: ExpectedCleanupTarget[] = [];
+  const sMap = new Map<number, Address>();
+  sMap.set(5, scenario5Address);
+  for (const d of deployedS6to8) {
+    sMap.set(d.scenarioId, d.contractAddress);
+  }
+
+  // Target 9: Scenario 5 Issuer
+  manifest.push({
+    scenarioId: 5,
+    contractAddress: scenario5Address,
+    party: "issuer",
+    expectedCreditWei: bonds.issuerBond + bonds.challengerBond,
+  });
+
+  // Targets 10 & 11: Scenario 6 Challenger & Issuer
+  const addr6 = sMap.get(6);
+  if (addr6) {
+    manifest.push({
+      scenarioId: 6,
+      contractAddress: addr6,
+      party: "challenger",
+      expectedCreditWei: bonds.challengerBond,
+    });
+    manifest.push({
+      scenarioId: 6,
+      contractAddress: addr6,
+      party: "issuer",
+      expectedCreditWei: bonds.issuerBond,
+    });
+  }
+
+  // Targets 12 & 13: Scenario 7 Challenger & Issuer
+  const addr7 = sMap.get(7);
+  if (addr7) {
+    manifest.push({
+      scenarioId: 7,
+      contractAddress: addr7,
+      party: "challenger",
+      expectedCreditWei: bonds.challengerBond,
+    });
+    manifest.push({
+      scenarioId: 7,
+      contractAddress: addr7,
+      party: "issuer",
+      expectedCreditWei: bonds.issuerBond,
+    });
+  }
+
+  return manifest;
+}
+
+export interface EvaluateAggregateEvidenceOptions {
+  historicalScenarioCount: number;
+  historicalCleanupCount: number;
+  historicalChallengerRecoveredWei: bigint;
+  historicalIssuerRecoveredWei: bigint;
+  continuationRecords: ScenarioRecord[];
+  continuationCleanupRecords: CleanupPartyResult[];
+  continuationTargets: ExpectedCleanupTarget[];
+  persistentChallengerResidualWei: bigint;
+  sweepRecord?: SweepResultRecord;
+}
+
+export interface AggregateEvidenceReport {
+  aggregateScenariosStatus: "AGGREGATE_PRIMARY_SCENARIOS_PASS" | "AGGREGATE_PRIMARY_SCENARIOS_FAIL";
+  aggregateCleanupStatus: "AGGREGATE_CONTRACT_ECONOMIC_CLEANUP_PASS" | "AGGREGATE_CONTRACT_ECONOMIC_CLEANUP_FAIL";
+  currentChallengerCleanupStatus: "CURRENT_CHALLENGER_CLEANUP_PASS" | "CURRENT_CHALLENGER_CLEANUP_FAIL";
+  aggregateLiveReadinessStatus: "AGGREGATE_LIVE_READINESS_PASS" | "AGGREGATE_LIVE_READINESS_BLOCKED";
+  totalChallengerRecoveredWei: bigint;
+  totalIssuerRecoveredWei: bigint;
+  totalContractRecoveredWei: bigint;
+  completedScenariosCount: number;
+  completedCleanupTargetsCount: number;
+  allAccountingInvariantsTrue: boolean;
+  persistentChallengerResidualWei: bigint;
+}
+
+export function evaluateAggregateEvidence(
+  options: EvaluateAggregateEvidenceOptions
+): AggregateEvidenceReport {
+  const {
+    historicalScenarioCount,
+    historicalCleanupCount,
+    historicalChallengerRecoveredWei,
+    historicalIssuerRecoveredWei,
+    continuationRecords,
+    continuationCleanupRecords,
+    continuationTargets,
+    persistentChallengerResidualWei,
+    sweepRecord,
+  } = options;
+
+  const continuationScenariosPass =
+    continuationRecords.length === 4 &&
+    continuationRecords.every((r) => r.accountingInvariant === true);
+  const totalScenarios = historicalScenarioCount + continuationRecords.length;
+  const aggregateScenariosPass =
+    historicalScenarioCount === 4 && continuationScenariosPass && totalScenarios === 8;
+
+  let contChallengerRecovered = 0n;
+  let contIssuerRecovered = 0n;
+  let continuationCleanupValid = continuationCleanupRecords.length === continuationTargets.length;
+
+  for (const r of continuationCleanupRecords) {
+    if (r.status !== "WITHDRAWN" || !r.transactionHash || !r.receiptSummary) {
+      continuationCleanupValid = false;
+      continue;
+    }
+    if (r.postWithdrawalCredit !== 0n || r.accountingInvariantSatisfied !== true) {
+      continuationCleanupValid = false;
+      continue;
+    }
+    if (r.party === "challenger") {
+      contChallengerRecovered += r.expectedCredit;
+    } else if (r.party === "issuer") {
+      contIssuerRecovered += r.expectedCredit;
+    }
+  }
+
+  const totalChallenger = historicalChallengerRecoveredWei + contChallengerRecovered;
+  const totalIssuer = historicalIssuerRecoveredWei + contIssuerRecovered;
+  const totalContract = totalChallenger + totalIssuer;
+
+  const expectedChallengerTotal = 66000000000000000n; // 0.066 GEN
+  const expectedIssuerTotal = 39000000000000000n; // 0.039 GEN
+  const expectedContractTotal = 105000000000000000n; // 0.105 GEN
+
+  const aggregateCleanupPass =
+    historicalCleanupCount === 8 &&
+    continuationCleanupValid &&
+    (historicalCleanupCount + continuationCleanupRecords.length) === 13 &&
+    totalChallenger === expectedChallengerTotal &&
+    totalIssuer === expectedIssuerTotal &&
+    totalContract === expectedContractTotal;
+
+  const challengerResidualPass =
+    persistentChallengerResidualWei === 0n &&
+    sweepRecord !== undefined &&
+    (sweepRecord.disposition === "COMPLETED" || sweepRecord.disposition === "NOT_REQUIRED_ZERO_BALANCE");
+
+  const aggregateLiveReadinessPass = aggregateScenariosPass && aggregateCleanupPass && challengerResidualPass;
+
+  return {
+    aggregateScenariosStatus: aggregateScenariosPass
+      ? "AGGREGATE_PRIMARY_SCENARIOS_PASS"
+      : "AGGREGATE_PRIMARY_SCENARIOS_FAIL",
+    aggregateCleanupStatus: aggregateCleanupPass
+      ? "AGGREGATE_CONTRACT_ECONOMIC_CLEANUP_PASS"
+      : "AGGREGATE_CONTRACT_ECONOMIC_CLEANUP_FAIL",
+    currentChallengerCleanupStatus: challengerResidualPass
+      ? "CURRENT_CHALLENGER_CLEANUP_PASS"
+      : "CURRENT_CHALLENGER_CLEANUP_FAIL",
+    aggregateLiveReadinessStatus: aggregateLiveReadinessPass
+      ? "AGGREGATE_LIVE_READINESS_PASS"
+      : "AGGREGATE_LIVE_READINESS_BLOCKED",
+    totalChallengerRecoveredWei: totalChallenger,
+    totalIssuerRecoveredWei: totalIssuer,
+    totalContractRecoveredWei: totalContract,
+    completedScenariosCount: totalScenarios,
+    completedCleanupTargetsCount: historicalCleanupCount + continuationCleanupRecords.length,
+    allAccountingInvariantsTrue: continuationRecords.every((r) => r.accountingInvariant === true),
+    persistentChallengerResidualWei,
   };
 }
