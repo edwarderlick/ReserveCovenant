@@ -30,9 +30,11 @@ import {
   getLiveScenariosSpec,
   DEFAULT_CHALLENGER_BOND,
   DEFAULT_ISSUER_BOND,
+  DEPLOY_FEE_HEURISTIC_MULTIPLIER,
 } from "./run_live_integration.js";
 import {
   deriveChallengerTransactionCount,
+  deriveTotalChallengerTransactionCount,
   calculateRequiredChallengerFunding,
   calculateChallengerFundingShortfall,
   calculateRequiredIssuerBalance,
@@ -80,7 +82,7 @@ export async function runPythonLiveIntegration(): Promise<void> {
 
   // 6. Calculate dynamic funding
   const specs = getLiveScenariosSpec();
-  const challengerTxCount = BigInt(deriveChallengerTransactionCount(specs)); // 7 transactions
+  const challengerTxCount = BigInt(deriveTotalChallengerTransactionCount(specs, true)); // 14 transactions (7 challenge + 6 cleanup withdrawals + 1 sweep)
   const feeEstimate = await issuerClient.estimateTransactionFees();
   const feePerTx = BigInt(feeEstimate.feeValue);
 
@@ -101,11 +103,11 @@ export async function runPythonLiveIntegration(): Promise<void> {
   console.log(`[orchestration] Challenger current balance:  ${challengerCurrentBal.toString()} wei`);
   console.log(`[orchestration] Challenger funding shortfall: ${shortfall.toString()} wei`);
 
-  // Verify Issuer balance preflight
+  // Verify Issuer balance preflight with conservative deployment heuristic
   const issuerBal = issuerSigner.balance ?? 0n;
   const requiredIssuerBal = calculateRequiredIssuerBalance({
     disposableDeployCount: 8n,
-    deployFeePerTx: feePerTx * 2n, // deployment has higher gas than standard call
+    deployFeePerTx: feePerTx * DEPLOY_FEE_HEURISTIC_MULTIPLIER,
     issuerBondsTotal: 8n * DEFAULT_ISSUER_BOND,
     issuerTxCount: 20n,
     txFeePerTx: feePerTx,

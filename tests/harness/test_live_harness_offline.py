@@ -32,6 +32,11 @@ from tests.integration.fixture_url_validator import (
 from tests.integration.test_reservecovenant_live import (
     get_challenger_signer,
     assert_expected_contract_failure,
+    ContractExecutionReceiptError,
+    verify_challenger_balance_preflight_initial,
+    verify_challenger_next_tx_balance,
+    reset_session_challenger_preflight_for_tests,
+    REQUIRED_CHALLENGER_MIN_BALANCE,
 )
 
 
@@ -111,41 +116,250 @@ def test_offline_challenger_never_falls_back_to_issuer(monkeypatch):
     assert challenger.address.startswith("0x")
 
 
-def test_offline_expected_contract_failure_distinguishes_errors():
-    """Proves that assert_expected_contract_failure accepts on-chain reverts and rejects infrastructure errors."""
-    # 1. Accepted expected contract revert
+def test_offline_rejection_of_plain_and_infrastructure_errors():
+    """
+    Proves that assert_expected_contract_failure rejects plain unstructured exceptions
+    and infrastructure errors, even when they contain the expected string.
+    """
+    # 1. Plain Exception("CHALLENGED") must be rejected
+    def mock_plain_challenged():
+        raise Exception("CHALLENGED")
+
+    with pytest.raises(pytest.fail.Exception) as excinfo_ch:
+        assert_expected_contract_failure(
+            mock_plain_challenged,
+            expected_substring="CHALLENGED",
+            expected_method="resolve_challenge",
+        )
+    assert "Rejected unstructured exception without receipt" in str(excinfo_ch.value)
+
+    # 2. Plain Exception("credit") must be rejected
+    def mock_plain_credit():
+        raise Exception("No withdrawal credit available")
+
+    with pytest.raises(pytest.fail.Exception) as excinfo_cr:
+        assert_expected_contract_failure(
+            mock_plain_credit,
+            expected_substring="No withdrawal credit available",
+            expected_method="withdraw_credit",
+        )
+    assert "Rejected unstructured exception without receipt" in str(excinfo_cr.value)
+
+    # 3. ConnectionError / RPC timeout must be rejected
+    def mock_rpc_timeout():
+        raise ConnectionError("RPC timeout occurred while waiting for resolve_challenge in CHALLENGED state")
+
+    with pytest.raises(pytest.fail.Exception) as excinfo_rpc:
+        assert_expected_contract_failure(
+            mock_rpc_timeout,
+            expected_substring="CHALLENGED",
+            expected_method="resolve_challenge",
+        )
+    assert "Rejected unstructured exception without receipt" in str(excinfo_rpc.value)
+
+    # 4. Unexpected success must be rejected
+    def mock_success():
+        return {
+            "hash": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+            "status_name": "FINALIZED",
+            "tx_execution_result_name": "FINISHED_WITH_RETURN",
+            "method_name": "resolve_challenge",
+        }
+
+    with pytest.raises(pytest.fail.Exception) as excinfo_succ:
+        assert_expected_contract_failure(
+            mock_success,
+            expected_substring="CHALLENGED",
+            expected_method="resolve_challenge",
+        )
+    assert "Expected contract execution failure on 'resolve_challenge', but transaction succeeded unexpectedly" in str(excinfo_succ.value)
+
+
+def test_offline_acceptance_of_structured_contract_execution_failure():
+    """
+    Proves that assert_expected_contract_failure accepts recognized structured contract execution failures
+    with receipt metadata (hash, FINALIZED/ACCEPTED, FINISHED_WITH_ERROR, matching method, and matching reason).
+    """
+    tx_hash = "0x" + "a" * 64
     state_verified = False
-    def mock_revert():
-        raise ValueError("Transaction failed on-chain: Epoch is not in CHALLENGED state")
 
     def mock_verify_state():
         nonlocal state_verified
         state_verified = True
 
-    assert_expected_contract_failure(
-        mock_revert,
-        expected_substring="CHALLENGED",
+    # 1. Thrown ContractExecutionReceiptError
+    def mock_throw_structured():
+        raise ContractExecutionReceiptError(
+            message="Contract execution failed on-chain",
+            tx_hash=tx_hash,
+            status="FINALIZED",
+            execution_result="FINISHED_WITH_ERROR",
+            method_name="resolve_challenge",
+            contract_error_payload="resolve_challenge only allowed in CHALLENGED state",
+            receipt={
+                "hash": tx_hash,
+                "status_name": "FINALIZED",
+                "tx_execution_result_name": "FINISHED_WITH_ERROR",
+                "method_name": "resolve_challenge",
+                "result": {"payload": "resolve_challenge only allowed in CHALLENGED state"},
+            },
+        )
+
+    res = assert_expected_contract_failure(
+        mock_throw_structured,
+        expected_substring="resolve_challenge only allowed in CHALLENGED state",
+        expected_method="resolve_challenge",
         verify_state_fn=mock_verify_state,
     )
+    assert isinstance(res, ContractExecutionReceiptError)
     assert state_verified is True
 
-    # 2. Rejected unrelated infrastructure error (e.g. ConnectionError / timeout)
-    def mock_rpc_down():
-        raise ConnectionError("Connection refused to RPC endpoint")
+    # 2. Returned receipt dictionary
+    def mock_return_receipt():
+        return {
+            "hash": tx_hash,
+            "status_name": "FINALIZED",
+            "tx_execution_result_name": "FINISHED_WITH_ERROR",
+            "method_name": "withdraw_credit",
+            "result": {"payload": "No withdrawal credit available"},
+        }
 
-    with pytest.raises(pytest.fail.Exception) as excinfo_infra:
-        assert_expected_contract_failure(mock_rpc_down, expected_substring="CHALLENGED")
+    state_verified_2 = False
+    def mock_verify_state_2():
+        nonlocal state_verified_2
+        state_verified_2 = True
 
-    assert "Unrelated infrastructure/network error encountered" in str(excinfo_infra.value)
+    rec_res = assert_expected_contract_failure(
+        mock_return_receipt,
+        expected_substring="No withdrawal credit available",
+        expected_method="withdraw_credit",
+        verify_state_fn=mock_verify_state_2,
+    )
+    assert isinstance(rec_res, dict)
+    assert state_verified_2 is True
 
-    # 3. Rejected unexpected success
-    def mock_success():
-        return "SUCCESS"
 
-    with pytest.raises(pytest.fail.Exception) as excinfo_succ:
-        assert_expected_contract_failure(mock_success, expected_substring="CHALLENGED")
+def test_offline_structured_failure_rejections():
+    """Proves that structured failures are rejected if method, reason, status, or tx hash are invalid."""
+    tx_hash = "0x" + "b" * 64
 
-    assert "Expected contract execution failure, but the transaction succeeded unexpectedly" in str(excinfo_succ.value)
+    # 1. Wrong method
+    def mock_wrong_method():
+        return {
+            "hash": tx_hash,
+            "status_name": "FINALIZED",
+            "tx_execution_result_name": "FINISHED_WITH_ERROR",
+            "method_name": "wrong_method",
+            "result": {"payload": "resolve_challenge only allowed in CHALLENGED state"},
+        }
+
+    with pytest.raises(pytest.fail.Exception) as exc_meth:
+        assert_expected_contract_failure(
+            mock_wrong_method,
+            expected_substring="resolve_challenge only allowed in CHALLENGED state",
+            expected_method="resolve_challenge",
+        )
+    assert "Receipt method mismatch" in str(exc_meth.value)
+
+    # 2. Wrong reason substring
+    def mock_wrong_reason():
+        return {
+            "hash": tx_hash,
+            "status_name": "FINALIZED",
+            "tx_execution_result_name": "FINISHED_WITH_ERROR",
+            "method_name": "resolve_challenge",
+            "result": {"payload": "Completely different reason"},
+        }
+
+    with pytest.raises(pytest.fail.Exception) as exc_reas:
+        assert_expected_contract_failure(
+            mock_wrong_reason,
+            expected_substring="resolve_challenge only allowed in CHALLENGED state",
+            expected_method="resolve_challenge",
+        )
+    assert "did not match expected substring" in str(exc_reas.value)
+
+    # 3. Non-final status (e.g. PENDING)
+    def mock_pending():
+        return {
+            "hash": tx_hash,
+            "status_name": "PENDING",
+            "tx_execution_result_name": "FINISHED_WITH_ERROR",
+            "method_name": "resolve_challenge",
+            "result": {"payload": "resolve_challenge only allowed in CHALLENGED state"},
+        }
+
+    with pytest.raises(pytest.fail.Exception) as exc_stat:
+        assert_expected_contract_failure(
+            mock_pending,
+            expected_substring="resolve_challenge only allowed in CHALLENGED state",
+            expected_method="resolve_challenge",
+        )
+    assert "expected FINALIZED or ACCEPTED consensus" in str(exc_stat.value)
+
+    # 4. Missing transaction hash
+    def mock_missing_hash():
+        return {
+            "hash": "",
+            "status_name": "FINALIZED",
+            "tx_execution_result_name": "FINISHED_WITH_ERROR",
+            "method_name": "resolve_challenge",
+            "result": {"payload": "resolve_challenge only allowed in CHALLENGED state"},
+        }
+
+    with pytest.raises(pytest.fail.Exception) as exc_nohash:
+        assert_expected_contract_failure(
+            mock_missing_hash,
+            expected_substring="resolve_challenge only allowed in CHALLENGED state",
+            expected_method="resolve_challenge",
+        )
+    assert "missing transaction hash" in str(exc_nohash.value)
+
+
+def test_offline_challenger_balance_preflight_scope():
+    """
+    Proves challenger balance preflight behavior:
+    - Session-level full-suite preflight runs exactly once.
+    - Decreasing balance does not trigger a false full-suite check on subsequent calls.
+    - Per-operation check fails before submission when upcoming balance is insufficient.
+    - Per-operation check proceeds when upcoming balance is sufficient.
+    """
+    reset_session_challenger_preflight_for_tests()
+    mock_challenger = MagicMock()
+    mock_challenger.address = "0x" + "c" * 40
+
+    call_count = 0
+    simulated_balance = REQUIRED_CHALLENGER_MIN_BALANCE + 1_000_000_000_000_000  # ~0.036 GEN
+
+    def mock_get_balance(_addr):
+        nonlocal call_count
+        call_count += 1
+        return simulated_balance
+
+    # 1. First initial check runs and verifies against full-suite minimum (0.035 GEN)
+    verify_challenger_balance_preflight_initial(mock_challenger, get_balance_fn=mock_get_balance)
+    assert call_count == 1
+
+    # 2. Simulated scenario spending: balance drops to 0.020 GEN (below 0.035 GEN full-suite minimum)
+    simulated_balance = 20_000_000_000_000_000
+    # Second call to initial check must be a no-op (does NOT re-query or fail)
+    verify_challenger_balance_preflight_initial(mock_challenger, get_balance_fn=mock_get_balance)
+    assert call_count == 1  # Not called again because session sentinel is set
+
+    # 3. Per-operation check for next challenger transaction:
+    # Requires only bond (0.005 GEN) + fee + safety margin (~0.0053 GEN)
+    # With 0.020 GEN, next-operation check must succeed
+    op_bal = verify_challenger_next_tx_balance(mock_challenger, get_balance_fn=mock_get_balance)
+    assert op_bal == 20_000_000_000_000_000
+    assert call_count == 2
+
+    # 4. If balance drops below next-operation requirement (e.g. 0.002 GEN < 0.0053 GEN):
+    simulated_balance = 2_000_000_000_000_000
+    with pytest.raises(pytest.fail.Exception) as exc_low:
+        verify_challenger_next_tx_balance(mock_challenger, get_balance_fn=mock_get_balance)
+    assert "BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE" in str(exc_low.value)
+    assert "insufficient for upcoming operation" in str(exc_low.value)
+    assert call_count == 3
 
 
 def test_offline_accounting_invariant_logic():

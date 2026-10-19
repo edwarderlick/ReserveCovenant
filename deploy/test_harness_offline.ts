@@ -39,11 +39,14 @@ import {
 } from "./prepare_public_fixtures.js";
 import {
   deriveChallengerTransactionCount,
+  deriveTotalChallengerTransactionCount,
   calculateRequiredChallengerFunding,
   calculateChallengerFundingShortfall,
   calculateRequiredIssuerBalance,
   verifyReceiptExecution,
   expectContractExecutionError,
+  ContractExecutionReceiptError,
+  executeAndVerifyChallengerFunding,
 } from "./harness_utils.js";
 import { ExecutionResult, TransactionStatus } from "genlayer-js/types";
 
@@ -99,8 +102,14 @@ async function runOfflineHarnessTests(): Promise<void> {
   const derivedCount = deriveChallengerTransactionCount(specs);
   assert(derivedCount === 7, `Expected derived challenger count to be 7, got ${derivedCount}`);
 
+  // Derived total challenger transactions including 6 cleanup withdrawals + 1 sweep = 14
+  const totalChallengerTx = deriveTotalChallengerTransactionCount(specs, true);
+  assert(totalChallengerTx === 14, `Expected 14 total challenger transactions (7 challenge + 6 cleanup + 1 sweep), got ${totalChallengerTx}`);
+  assert(deriveTotalChallengerTransactionCount(specs, false) === 7, "Challenge-only count is 7");
+
   // Empty specs derive 0
   assert(deriveChallengerTransactionCount([]) === 0, "Empty specs must derive 0 challenger transactions");
+  assert(deriveTotalChallengerTransactionCount([], true) === 1, "Empty specs with cleanup derives 1 sweep transaction");
 
   // --------------------------------------------------------------------------
   // [3/12] Dynamic Challenger Funding Calculations
@@ -257,63 +266,239 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(nullReceiptCaught, "Null receipt must be rejected");
 
   // --------------------------------------------------------------------------
-  // [6/12] Expected Contract Execution Error Classification (Phase 6)
+  // [6/12] Expected Contract Execution Error Classification (Phase 1 & Phase 2)
   // --------------------------------------------------------------------------
-  console.log("[6/12] Testing Expected Contract Execution Error Classification...");
+  console.log("[6/12] Testing Receipt-Backed Expected Contract Error Classification (10 Scenarios)...");
 
-  // Action throwing on-chain revert -> accepted
-  let stateChecked = false;
-  const revertAction = async () => {
-    const err: any = new Error("Transaction resolve_challenge failed on-chain: Epoch is not in CHALLENGED state");
-    err.receipt = {
+  // 1. Finalized expected contract error with correct method and reason -> accepted
+  let state1Verified = false as boolean;
+  const action1 = async () => {
+    return {
       hash: "0x3333333333333333333333333333333333333333333333333333333333333333",
       statusName: "FINALIZED",
       txExecutionResultName: "FINISHED_WITH_ERROR",
+      errorMessage: "resolve_challenge only allowed in CHALLENGED state",
+      methodName: "resolve_challenge",
     };
-    throw err;
   };
-  const classifiedRevert = await expectContractExecutionError(revertAction, {
+  const res1 = await expectContractExecutionError(action1, {
     expectedMethod: "resolve_challenge",
-    expectedErrorSubstring: "CHALLENGED",
+    expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
     verifyStateUnchanged: async () => {
-      stateChecked = true;
+      state1Verified = true;
     },
   });
-  assert(stateChecked, "State invariant verification must execute on expected revert");
-  assert(classifiedRevert.message.includes("CHALLENGED"), "Error message captured");
+  assert(Boolean(state1Verified), "[Test 1] State check must run on accepted contract error");
+  assert(res1.txHash === "0x3333333333333333333333333333333333333333333333333333333333333333", "[Test 1] Hash matches");
 
-  // Action throwing unrelated infrastructure error (e.g. ECONNREFUSED) -> strictly rejected!
-  const rpcDownAction = async () => {
-    throw new Error("connect ECONNREFUSED 127.0.0.1:4000");
+  // Also test thrown structured ContractExecutionReceiptError -> accepted
+  const action1Thrown = async () => {
+    throw new ContractExecutionReceiptError({
+      transactionHash: "0x3333333333333333333333333333333333333333333333333333333333333333",
+      methodName: "resolve_challenge",
+      receipt: {
+        hash: "0x3333333333333333333333333333333333333333333333333333333333333333",
+        statusName: "FINALIZED",
+        txExecutionResultName: "FINISHED_WITH_ERROR",
+      },
+      consensusStatus: "FINALIZED",
+      executionResult: "FINISHED_WITH_ERROR",
+      contractErrorPayload: "resolve_challenge only allowed in CHALLENGED state",
+    });
   };
-  let infraErrorCaught = false;
+  const res1Thrown = await expectContractExecutionError(action1Thrown, {
+    expectedMethod: "resolve_challenge",
+    expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+  });
+  assert(res1Thrown.txHash === "0x3333333333333333333333333333333333333333333333333333333333333333", "Thrown ContractExecutionReceiptError accepted");
+
+  // 2. Finalized contract error with wrong reason -> rejected
+  const action2 = async () => {
+    return {
+      hash: "0x3333333333333333333333333333333333333333333333333333333333333333",
+      statusName: "FINALIZED",
+      txExecutionResultName: "FINISHED_WITH_ERROR",
+      errorMessage: "Some other unrelated revert reason",
+      methodName: "resolve_challenge",
+    };
+  };
+  let wrongReasonCaught = false;
   try {
-    await expectContractExecutionError(rpcDownAction, {
+    await expectContractExecutionError(action2, {
       expectedMethod: "resolve_challenge",
-      expectedErrorSubstring: "CHALLENGED",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
     });
   } catch (err: any) {
-    infraErrorCaught = err.message.includes("Unrelated infrastructure/client error detected");
+    wrongReasonCaught = err.message.includes("did not match expected substring");
   }
-  assert(infraErrorCaught, "ECONNREFUSED must be strictly rejected and not treated as a contract revert");
+  assert(wrongReasonCaught, "[Test 2] Finalized contract error with wrong reason must be rejected");
 
-  // Action unexpectedly succeeding -> must throw
-  const succeedingAction = async () => {
+  // 3. Finalized contract error with wrong method -> rejected
+  const action3 = async () => {
+    return {
+      hash: "0x3333333333333333333333333333333333333333333333333333333333333333",
+      statusName: "FINALIZED",
+      txExecutionResultName: "FINISHED_WITH_ERROR",
+      errorMessage: "resolve_challenge only allowed in CHALLENGED state",
+      methodName: "other_method",
+    };
+  };
+  let wrongMethodCaught = false;
+  try {
+    await expectContractExecutionError(action3, {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+    });
+  } catch (err: any) {
+    wrongMethodCaught = err.message.includes("Method mismatch on expected contract error");
+  }
+  assert(wrongMethodCaught, "[Test 3] Finalized contract error with wrong method must be rejected");
+
+  // 4. Pending FINISHED_WITH_ERROR-like receipt -> rejected
+  const action4 = async () => {
+    return {
+      hash: "0x3333333333333333333333333333333333333333333333333333333333333333",
+      statusName: "PENDING",
+      txExecutionResultName: "FINISHED_WITH_ERROR",
+      errorMessage: "resolve_challenge only allowed in CHALLENGED state",
+      methodName: "resolve_challenge",
+    };
+  };
+  let pendingErrorCaught = false;
+  try {
+    await expectContractExecutionError(action4, {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+    });
+  } catch (err: any) {
+    pendingErrorCaught = err.message.includes("expected FINALIZED or ACCEPTED");
+  }
+  assert(pendingErrorCaught, "[Test 4] Pending receipt must be rejected");
+
+  // 5. Receipt missing transaction hash -> rejected
+  const action5 = async () => {
+    return {
+      hash: "",
+      statusName: "FINALIZED",
+      txExecutionResultName: "FINISHED_WITH_ERROR",
+      errorMessage: "resolve_challenge only allowed in CHALLENGED state",
+      methodName: "resolve_challenge",
+    };
+  };
+  let missingHashCaught = false;
+  try {
+    await expectContractExecutionError(action5, {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+    });
+  } catch (err: any) {
+    missingHashCaught = err.message.includes("missing transaction hash");
+  }
+  assert(missingHashCaught, "[Test 5] Receipt missing transaction hash must be rejected");
+
+  // 6. Generic Error("revert") without receipt -> rejected
+  const action6 = async () => {
+    throw new Error("Execution reverted: resolve_challenge only allowed in CHALLENGED state");
+  };
+  let genericRevertCaught = false;
+  try {
+    await expectContractExecutionError(action6, {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+    });
+  } catch (err: any) {
+    genericRevertCaught = err.message.includes("without on-chain receipt");
+  }
+  assert(genericRevertCaught, "[Test 6] Generic Error('revert') without receipt must be rejected");
+
+  // 7. Generic Error("FINISHED_WITH_ERROR") without receipt -> rejected
+  const action7 = async () => {
+    throw new Error("FINISHED_WITH_ERROR: resolve_challenge only allowed in CHALLENGED state");
+  };
+  let genericExecErrorCaught = false;
+  try {
+    await expectContractExecutionError(action7, {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+    });
+  } catch (err: any) {
+    genericExecErrorCaught = err.message.includes("without on-chain receipt");
+  }
+  assert(genericExecErrorCaught, "[Test 7] Generic Error('FINISHED_WITH_ERROR') without receipt must be rejected");
+
+  // 8. RPC timeout containing the expected reason text -> rejected
+  const action8 = async () => {
+    throw new Error("ETIMEDOUT: timeout waiting for response regarding resolve_challenge only allowed in CHALLENGED state");
+  };
+  let timeoutCaught = false;
+  try {
+    await expectContractExecutionError(action8, {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+    });
+  } catch (err: any) {
+    timeoutCaught = err.message.includes("without on-chain receipt");
+  }
+  assert(timeoutCaught, "[Test 8] RPC timeout containing expected reason must be rejected");
+
+  // 9. FINISHED_WITH_RETURN -> rejected
+  const action9 = async () => {
     return {
       hash: "0x4444444444444444444444444444444444444444444444444444444444444444",
       statusName: "FINALIZED",
       txExecutionResultName: "FINISHED_WITH_RETURN",
+      methodName: "resolve_challenge",
     };
   };
-  let unexpectedSuccessCaught = false;
+  let unexpectedReturnCaught = false;
   try {
-    await expectContractExecutionError(succeedingAction, {
+    await expectContractExecutionError(action9, {
       expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
     });
   } catch (err: any) {
-    unexpectedSuccessCaught = err.message.includes("transaction succeeded unexpectedly");
+    unexpectedReturnCaught = err.message.includes("transaction succeeded unexpectedly");
   }
-  assert(unexpectedSuccessCaught, "Unexpected success must throw error");
+  assert(unexpectedReturnCaught, "[Test 9] FINISHED_WITH_RETURN must be rejected");
+
+  // 10. State mutation after expected revert -> rejected
+  const action10 = async () => {
+    return {
+      hash: "0x3333333333333333333333333333333333333333333333333333333333333333",
+      statusName: "FINALIZED",
+      txExecutionResultName: "FINISHED_WITH_ERROR",
+      errorMessage: "resolve_challenge only allowed in CHALLENGED state",
+      methodName: "resolve_challenge",
+    };
+  };
+  let stateMutationCaught = false;
+  try {
+    await expectContractExecutionError(action10, {
+      expectedMethod: "resolve_challenge",
+      expectedErrorSubstring: "resolve_challenge only allowed in CHALLENGED state",
+      verifyStateUnchanged: async () => {
+        throw new Error("State was mutated!");
+      },
+    });
+  } catch (err: any) {
+    stateMutationCaught = err.message.includes("State was mutated!");
+  }
+  assert(stateMutationCaught, "[Test 10] State mutation after expected revert must be rejected");
+
+  // Test missing sendTransaction on typed funding client fails with BLOCKED_NO_SUPPORTED_CHALLENGER_FUNDING_API
+  let missingApiCaught = false;
+  try {
+    await executeAndVerifyChallengerFunding({
+      issuerClient: {} as any,
+      issuerAccount: {} as any,
+      challengerAddress: "0x31cB1c6Bdb3Ed7B07B3394d714A380F73BC9aa15",
+      fundingAmount: 1000n,
+      requiredPostBalance: 2000n,
+    });
+  } catch (err: any) {
+    missingApiCaught = err.message.includes("BLOCKED_NO_SUPPORTED_CHALLENGER_FUNDING_API");
+  }
+  assert(missingApiCaught, "Missing sendTransaction on issuerClient must fail closed with BLOCKED_NO_SUPPORTED_CHALLENGER_FUNDING_API");
 
   // --------------------------------------------------------------------------
   // [7/12] Accounting Invariant Enforcement

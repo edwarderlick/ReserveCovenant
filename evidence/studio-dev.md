@@ -114,14 +114,14 @@ npm run test:harness
 ```
 Output:
 ```
-============================= 10 passed in 0.08s ==============================
+============================= 13 passed in 0.05s ==============================
 === Running Offline Live-Harness Validation Suite ===
 [1/12] Testing Signer Separation & Scenario Ownership...
 [2/12] Testing Challenger Transaction Count Derivation...
 [3/12] Testing Dynamic Challenger Funding Calculations...
 [4/12] Testing Issuer Balance Preflight Calculations...
 [5/12] Testing Receipt Execution Verification...
-[6/12] Testing Expected Contract Execution Error Classification...
+[6/12] Testing Receipt-Backed Expected Contract Error Classification (10 Scenarios)...
 [7/12] Testing Accounting Invariant Enforcement...
 [8/12] Testing Fixture Check & Prepublish Modes...
 [9/12] Testing Immutable Fixture URL Validation...
@@ -137,19 +137,76 @@ classification, and scenario specifications verified.
 (Zero deployments, zero transactions submitted).
 =================================================
 ```
-Result: **OFFLINE_HARNESS_VALIDATION_PASS** (22 tests passed: 10 Python + 12 TypeScript checks). Confirms:
-- Signer separation logic (self-challenge rejected before any network write);
-- Distinct challenger resolution fails closed on missing, malformed, or collided key (`BLOCKED_PENDING_DISTINCT_CHALLENGER_SIGNER`);
-- Challenger account selection never falls back to issuer;
-- Dynamic funding formula (`35e15 wei` bonds + estimated fees + bounded margin);
-- Issuer balance preflight and challenger balance preflight;
-- Strict receipt execution requiring `FINISHED_WITH_RETURN`;
-- Specific contract execution error classification (`FINISHED_WITH_ERROR`) distinguishing contract rejections from infrastructure/network errors;
-- Accounting invariant enforcement (`invariant_satisfied === true`, locked bonds zero);
-- Strict immutable fixture URL validation (commit-pinned accepted; mutable `/main/`, branches rejected);
-- Scenario call specifications (Scenario 4 calls `open_challenge` with `challengeType: "MATERIAL_DISCLAIMER"`);
-- Scenario 7 uses a fresh disposable instance for repeated resolution testing;
-- Public fixture preparation tool dry-run and canonical JSON serialization.
+Result: **OFFLINE_HARNESS_VALIDATION_PASS** (25 tests passed: 13 Python in `tests/harness/test_live_harness_offline.py` + 12 TypeScript check groups in `deploy/test_harness_offline.ts`).
+
+#### Detailed Architectural Enhancements Verified:
+
+1. **Receipt-Backed Expected Contract Error Validation**:
+   - Implemented structured error classes `ContractExecutionReceiptError` (in TypeScript `deploy/harness_utils.ts` and Python `tests/integration/test_reservecovenant_live.py`).
+   - Fields: `transactionHash`, `methodName`, `receipt`, `consensusStatus`, `executionResult`, and `contractErrorPayload`.
+   - `expectContractExecutionError` and `assert_expected_contract_failure` enforce all 7 required conditions:
+     1. Nonempty transaction hash.
+     2. Receipt object/dict exists.
+     3. Consensus status is exactly `FINALIZED` or `ACCEPTED`.
+     4. Execution result is exactly `FINISHED_WITH_ERROR`.
+     5. Recorded method equals `expectedMethod`.
+     6. Normalized contract error payload contains required `expectedErrorSubstring`.
+     7. State-unchanged verification callback passes.
+   - Strictly rejects:
+     - Generic errors containing "revert" without receipts;
+     - Locally manufactured error strings;
+     - Errors without receipts or transaction hashes;
+     - Non-finalized or pending receipts;
+     - Unexpected success (`FINISHED_WITH_RETURN`);
+     - Unrelated infrastructure/RPC errors or timeouts;
+     - Wrong method or wrong error substring;
+     - Post-error state mutations.
+   - Specific normalized contract error substrings enforced:
+     - Scenario 7: `"resolve_challenge only allowed in CHALLENGED state"` (`method: "resolve_challenge"`).
+     - Scenario 8: `"No withdrawal credit available"` (`method: "withdraw_credit"`).
+   - 10 comprehensive offline scenarios tested in `deploy/test_harness_offline.ts`:
+     1. Finalized expected contract error with correct method and reason → accepted.
+     2. Finalized contract error with wrong reason → rejected.
+     3. Finalized contract error with wrong method → rejected.
+     4. Pending FINISHED_WITH_ERROR-like receipt → rejected.
+     5. Receipt missing transaction hash → rejected.
+     6. Generic `Error("revert")` without receipt → rejected.
+     7. Generic `Error("FINISHED_WITH_ERROR")` without receipt → rejected.
+     8. RPC timeout containing expected reason text → rejected.
+     9. FINISHED_WITH_RETURN → rejected.
+     10. State mutation after expected revert → rejected.
+
+2. **Python Expected-Error Handling & Limitation Documentation**:
+   - Python `assert_expected_contract_failure` accepts returned receipt dictionaries or structured `ContractExecutionReceiptError` exceptions.
+   - Plain unstructured exceptions (`Exception("CHALLENGED")`, `Exception("credit")`, `ConnectionError`) are rejected fail-closed.
+   - Limitation: In `gltest`/`genlayer_py`, high-level calls return transaction receipt dicts. When structured receipts are unavailable, the authoritative TypeScript live harness serves as the primary verification engine, while Python scenarios provide secondary state-level checks.
+
+3. **Challenger Balance Preflight Scope**:
+   - Corrected fixture scoping: Full-suite funding check (`0.035 GEN`) runs once per test session before Scenario 1 via a session sentinel.
+   - Decreasing balance does NOT trigger a false full-suite failure on subsequent tests after earlier scenarios legitimately spend funds.
+   - Before each challenger transaction, `verify_challenger_next_tx_balance` verifies only the upcoming operation requirements:
+     $$\text{Upcoming Requirement} = \text{Bond (0.005 GEN)} + \text{Estimated Fee} + \text{Safety Margin} \approx 0.0053\text{ GEN}$$
+   - Fails closed before submission with `BLOCKED_INSUFFICIENT_STUDIO_DEVNET_BALANCE` if upcoming balance is insufficient.
+
+4. **Exact Typed SDK Client Interface**:
+   - Replaced `issuerClient: any` with strictly typed structural interface `SupportedFundingClient` in `deploy/harness_utils.ts`:
+     - `sendTransaction(args: { to: Address; value: bigint; [key: string]: unknown }): Promise<Hex>`
+     - `waitForTransactionReceipt(args: { hash: Hex }): Promise<ReceiptType>`
+     - `getBalance(args: { address: Address }): Promise<bigint>`
+   - TypeScript detects missing methods, wrong address formats, and invalid return types without type bypassing (`any`).
+   - If the client cannot expose `sendTransaction`, fails closed with `BLOCKED_NO_SUPPORTED_CHALLENGER_FUNDING_API`.
+
+5. **Issuer Deployment Fee Preflight**:
+   - Deployment estimate explicitly labeled as a conservative heuristic: `DEPLOY_FEE_HEURISTIC_MULTIPLIER = 3n`.
+   - Fresh issuer balance check performed immediately before each deployment and write, aborting prior to submission if funds cannot cover that operation.
+
+6. **Ephemeral Challenger Funds Recovery & Cleanup**:
+   - Challenger transaction derivation updated to 14 total transactions (7 primary challenges + 6 cleanup withdrawals + 1 sweep).
+   - Disposable scenario bonds become pull credits inside disposable contracts.
+   - Cleanup routine in `deploy/run_live_integration.ts` withdraws available challenger pull credits from disposable contracts (Scenarios 1, 2, 3, 4 win 0.014 GEN each; Scenarios 6, 7 refund 0.005 GEN each; Scenario 5 is UPHELD; Scenario 8 is issuer-only).
+   - Residual externally held challenger GEN swept back to issuer via typed transfer, leaving only final transfer gas.
+   - Cleanup is decoupled from scenario pass/fail (cleanup failures never erase scenario evidence).
+   - Maximum possible stranded test GEN without cleanup: $4 \times 0.014 + 2 \times 0.005 + \text{gas} \approx 0.081\text{ GEN}$. With cleanup: 0 GEN.
 
 ### 5. Public Fixtures Check & Prepublication Mode
 Commands:
@@ -260,7 +317,7 @@ get_accounting():
 - **Immutable Hashes**:
   - `contracts/reservecovenant.py`: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
   - `deploy/schema.json`: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
-- **Live Harness Implementation**: Implemented and offline-tested across 22 tests (10 Python + 12 TypeScript).
+- **Live Harness Implementation**: Complete and offline-tested across 25 tests (13 Python + 12 TypeScript checks).
 - **Public Fixtures Status**: Fixtures are not public; placeholders remain pending remote publication.
 - **Live Scenarios**: Real live validator scenarios have NOT run in this pass.
 - **Validator Consensus**: Validator consensus has NOT been demonstrated on Studio Devnet.
