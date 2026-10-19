@@ -334,49 +334,69 @@ The ReserveCovenant ABI consists of **15 methods** (8 views, 7 writes) defined i
 
 ---
 
-## Live-Harness Readiness & Publication Status
+## Deployment & Verification Status
+
+### Disposable Live-Validation Contracts — Noncanonical
+
+| Scenario | Purpose | Disposable Contract | Deployment Transaction | Result |
+|---|---|---|---|---|
+| Scenario 1 | Compliant Disclosure | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 2 | Coverage Shortfall Breach | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 3 | Future-Dated Disclosure | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 4 | Ineligible Reserve Breach | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 5 | Unsupported Claim Upheld | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 6 | Material Disclaimer Breach | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 7 | Repeated Resolution Revert | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+| Scenario 8 | Zero Credit Revert | NOT DEPLOYED | NOT SUBMITTED | HALTED_BEFORE_DEPLOYMENT |
+
+*Note: Zero disposable scenario contracts were deployed. During the newly authorized live validation run, execution halted during challenger funding receipt verification prior to Scenario 1 deployment. Per Rule 13 ("Do not automatically retry a live run after its first submitted transaction"), execution stopped immediately. No disposable contract is canonical.*
+
+### Verified Studio-Dev Transactions & Participants
+
+- **Issuer Public Address**: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
+- **Faucet Top-Up Transaction**: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d) (`10.000 GEN`)
+- **Current Authoritative Issuer Balance**: `11,701,261,087,749,496,816 wei` (~`11.70126 GEN`)
+- **Native-Transfer Canary Challenger**: [`0x298ECE720dFE465ED9F77dDe88505F7F73016774`](https://explorer-studio-dev.genlayer.com/address/0x298ECE720dFE465ED9F77dDe88505F7F73016774)
+  - Canary Funding Tx: [`0x9a790c2cdbe68a3339c447b3b93b1076e3eae3cdbb4f73a4aea23132f756132d`](https://explorer-studio-dev.genlayer.com/tx/0x9a790c2cdbe68a3339c447b3b93b1076e3eae3cdbb4f73a4aea23132f756132d) (`0.01 GEN`, `status: FINALIZED`, `NOT_VOTED`, `value_credited: true`)
+  - Canary Residual Sweep Tx: [`0xfbfdb01b98fadb2226ba9f8e9e0221a9a43db47f34251919ece0ed507984a16f`](https://explorer-studio-dev.genlayer.com/tx/0xfbfdb01b98fadb2226ba9f8e9e0221a9a43db47f34251919ece0ed507984a16f) (`0.01 GEN`, `status: FINALIZED`, `NOT_VOTED`, `value_credited: true`)
+  - Canary Final Residual: `0 wei` (**NATIVE_TRANSFER_CANARY_PASS**)
+- **Full-Run Challenger 2**: [`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e)
+  - Full-Run Funding Tx: [`0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769`](https://explorer-studio-dev.genlayer.com/tx/0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769)
+  - Exact Funding Value: `1,720,000,000,000,173,913 wei` (`1.720000000000173913 GEN`)
+  - Status: `FINALIZED`, `NOT_VOTED`, `value_credited: true`
+  - Balance Delta: `1,720,000,000,000,173,913 wei`
+  - Scenario Transactions: 0 submitted (halted before Scenario 1)
+  - Cleanup Withdrawals: 0 created / 0 needed
+  - Final Challenger Sweep: Could not be executed due to process exit after receipt assertion failure
+  - Current Challenger 2 Balance: `1,720,000,000,000,173,913 wei` (**STRANDED STUDIO-DEV TEST BALANCE**)
+- **Historical Ephemeral Challenger 1 (Incident 1)**: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698)
+  - Historical Funding Tx: [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21)
+  - Exact Balance: `1,720,000,000,000,173,913 wei` (**STRANDED STUDIO-DEV TEST BALANCE — OLD EPHEMERAL KEY UNAVAILABLE**)
+- **Historical Deployment**: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
+  - Historical Deployment Tx: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
+
+### Economic Cleanup Disposition & Live Readiness
+
+- **Contract Credits**: `NONE CREATED`
+- **Contract Cleanup**: `NOT REQUIRED`
+- **Ephemeral EOA Cleanup**: `FAILED / IMPOSSIBLE AFTER KEY LOSS`
+- **Stranded Studio-dev Test Balance (Challenger 1)**: `1.720000000000173913 GEN` ([`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698))
+- **Stranded Studio-dev Test Balance (Challenger 2)**: `1.720000000000173913 GEN` ([`0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e`](https://explorer-studio-dev.genlayer.com/address/0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e))
+- **LIVE_READINESS**: `BLOCKED`
+
+*Non-Recoverability Notice*: Neither ephemeral test balance can be recovered without the respective ephemeral private key. In accordance with safety rules, keys held in memory are released upon process exit and must never be guessed, fabricated, or reconstructed. These sessions are not economically clean, and live readiness remains blocked until all criteria can be satisfied.
+
+### Historical Publication & CI Verification
 
 - **Repository URL**: `https://github.com/edwarderlick/ReserveCovenant`
-- **Contract Repair Status**: Contract repair is verified offline with 82 passing direct tests.
-- **Immutable Hashes**:
-  - Contract (`contracts/reservecovenant.py`): `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
-  - Schema (`deploy/schema.json`): `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
+- **Contract Source SHA-256**: `590de5d84a352dfea03b1e57c85bc44db5d5b681e9ca63a35786f5fc1d8ac96a` (UNCHANGED)
+- **Schema SHA-256**: `30db85a767b68d40fb5f5984b79cbd8436245693e20de03703c6dd9bd1bbe7a1` (UNCHANGED)
 - **Two-Commit Fixture Publication Flow**:
   - **Stage-A Evidence Commit (`COMMIT_A`)**: `7060b5e631fb5e2581fc51f7d23bf331ee79184c`
-    - `fixtures/issuer-upheld-evidence.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/issuer-upheld-evidence.json` (SHA-256: `3b296309d8fbf91aaccda1eac13e1cb6d3ad3f33348d2606d63c3de9e78b8675`)
-    - `fixtures/issuer-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/issuer-material-disclaimer.json` (SHA-256: `b6ae59a747a1e7785c7ba5d16657b2ecb2d51edb8f6544051c6589826161dc25`)
-    - `fixtures/challenger-unsupported-claim.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/challenger-unsupported-claim.json` (SHA-256: `8c32858b6919b4466502d3d3e120643aca030e9b8c8e5c21e5734304b887b71f`)
-    - `fixtures/challenger-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/7060b5e631fb5e2581fc51f7d23bf331ee79184c/fixtures/challenger-material-disclaimer.json` (SHA-256: `84ddeead88550e8c111e623200ffd2525fc73b2218372ef47a1c0fa6840d9e87`)
   - **Stage-B Snapshot Publication Commit (`COMMIT_B`)**: `698b675e5b637f263f841ac148e1718f3c566024`
-    - `fixtures/epoch-compliant.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-compliant.json` (SHA-256: `07294204790ff0921a9c7cb2d4f6fc9344e31238be20a4f3b042dfbd3420986f`)
-    - `fixtures/epoch-coverage-shortfall.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-coverage-shortfall.json` (SHA-256: `52cdd2c3e62c7659844d0dfccc8c3f76f415224fa4069f6192918d2cf93a579a`)
-    - `fixtures/epoch-future-dated.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-future-dated.json` (SHA-256: `3826b32fe95cdc8d2df81436bd96c64fa573b44c0f0f85c30042c3cdef2dd54a`)
-    - `fixtures/epoch-ineligible-reserve.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-ineligible-reserve.json` (SHA-256: `77bf69c4cacc091d421ec270248e7e7dbe0b47254227ce2757c18faf79ee1c95`)
-    - `fixtures/epoch-material-disclaimer.json`: `https://raw.githubusercontent.com/edwarderlick/ReserveCovenant/698b675e5b637f263f841ac148e1718f3c566024/fixtures/epoch-material-disclaimer.json` (SHA-256: `8695610270fe368398c83ab418752fd4241bf51eb28d073aceee7c9423e03f3b`)
-  - **Public GitHub Actions CI Run**: [Run 39209611053](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39209611053) (**PASSED / SUCCESS**)
+- **Public GitHub Actions CI**:
+  - Base Repair Run: [Run 39214830441](https://github.com/edwarderlick/ReserveCovenant/actions/runs/39214830441) (**PASSED / SUCCESS**)
 - **Public Fixtures Status**: **PUBLICATION_READY** (`npm run fixtures:check` exits 0).
-- **Live Harness Implementation**: Complete and offline-tested across 41 checks (15 Python in `tests/harness/test_live_harness_offline.py` + 18 core check groups + 23 native-transfer regression checks in `deploy/test_harness_offline.ts`).
-- **Live Validator Scenarios**: Real live validator scenarios have NOT run to completion; halted during funding receipt verification before scenario contract deployment.
-- **Historical Ephemeral Challenger Incident & Stranded Balance**:
-  - Exact Funding Value: `1,720,000,000,000,173,913 wei` (`1.720000000000173913 GEN`)
-  - Authoritative Current Issuer Balance: `13,421,261,087,749,670,729 wei`
-  - Old Ephemeral Challenger Balance: `1,720,000,000,000,173,913 wei`
-  - JavaScript Precision Explanation: The earlier recorded receipt value ending in `...3824` was an unsafe JavaScript number representation and was not exact (89-wei float rounding difference).
-  - Economic Cleanup State:
-    - Contract Credits: `NONE CREATED`
-    - Contract Cleanup: `NOT REQUIRED`
-    - Ephemeral EOA Cleanup: `FAILED / IMPOSSIBLE AFTER KEY LOSS`
-    - Stranded Studio-dev Test Balance: `1.720000000000173913 GEN`
-    - LIVE_READINESS: `BLOCKED`
-  - Non-Recoverability Statement: The old test balance cannot be recovered without the old ephemeral private key. Per safety rules, the key must not be guessed, fabricated, or reconstructed. That session is not economically clean.
-- **Historical Addresses & Transactions**:
-  - Historical Contract: [`0x8C34faA54238b777cDe7e4373B267b0A6d0E4913`](https://explorer-studio-dev.genlayer.com/address/0x8C34faA54238b777cDe7e4373B267b0A6d0E4913) (**SUPERSEDED / NONCANONICAL — DO NOT USE**)
-  - Historical Deployment Tx: [`0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a`](https://explorer-studio-dev.genlayer.com/tx/0x246f59bc63214688526339ad1f0c922b4b15b4abee00b4cbd0161176edf3795a)
-  - Faucet Transaction: [`0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d`](https://explorer-studio-dev.genlayer.com/tx/0x79041ec3c1ded3a008913fabad595af3e78e594bb7365f78f9d2248a7fb3340d)
-  - Old Challenger Funding Tx: [`0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21`](https://explorer-studio-dev.genlayer.com/tx/0x8da4afbfec605b99f799762f23f946aced09be609fba4456b71bfe47cae0fb21)
-  - Issuer Address: [`0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD`](https://explorer-studio-dev.genlayer.com/address/0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD)
-  - Old Challenger Address: [`0x197A05D11da0f26678cA93542d2FA8c89293d698`](https://explorer-studio-dev.genlayer.com/address/0x197A05D11da0f26678cA93542d2FA8c89293d698)
-- **Live Integration Evidence**: Documented in [evidence/live-integration.md](evidence/live-integration.md) with verified explorer links.
 - **Canonical Redeployment**: Canonical redeployment has NOT occurred.
 - **Portal Submission**: No portal submission has occurred.
 - **Authoritative Statement**: **No live validator-consensus result is claimed.**

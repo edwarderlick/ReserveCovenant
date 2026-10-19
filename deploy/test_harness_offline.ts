@@ -1580,6 +1580,29 @@ async function runOfflineHarnessTests(): Promise<void> {
   assert(res16.receiptValueExact === false, "16. Observed 89-wei receipt value must not be marked exact");
   assert(res16.balanceDeltaWei === 1720000000000173913n, "16. Balance delta must equal authoritative 1,720,000,000,000,173,913 wei");
 
+  // 16b. Observed 89-wei case when parsed into BigInt from RPC/viem
+  const res16BigInt = verifyNativeTransferReceipt({
+    receipt: {
+      hash: "0x272cad038cad6f3e85d217ea5eaf0a7e6ebecfe6e3037f137d14a93ec6710769",
+      status: 7,
+      status_name: "FINALIZED",
+      txExecutionResult: 0,
+      txExecutionResultName: "NOT_VOTED",
+      value_credited: true,
+      from_address: "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD",
+      to_address: "0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e",
+      value: 1720000000000173824n, // As parsed into BigInt from viem/RPC
+    },
+    context: "test 16b: observed BigInt 89-wei case",
+    expectedSender: "0x9CE8B4b8A355421f01779Ebd0c49e22A8F1FF0DD",
+    expectedRecipient: "0xFCB9fF5d4AEA985336a8337295bdde0c33f46B5e",
+    requestedAmountWei: 1720000000000173913n,
+    preBalanceWei: 0n,
+    postBalanceWei: 1720000000000173913n,
+  });
+  assert(res16BigInt.receiptValueExact === false, "16b. Observed 89-wei BigInt receipt value must not be marked exact");
+  assert(res16BigInt.balanceDeltaWei === 1720000000000173913n, "16b. Balance delta must prove exact amount");
+
   // 17. Funding failure after successful transfer triggers emergency sweep
   let emergencySweepTriggered = false;
   const simulatedChallengerBal = 1720000000000173913n;

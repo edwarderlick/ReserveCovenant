@@ -19,6 +19,7 @@
     "test:integration:live": "tsx deploy/run_live_integration.ts",
     "test:integration:python:live": "tsx deploy/run_python_live_integration.ts",
     "canary": "tsx deploy/run_canary.ts",
+    "canary:native": "tsx deploy/run_native_canary.ts",
     "smoke:read": "tsx deploy/smoke_read.ts",
     "deploy:studio-dev": "tsx deploy/deployScript.ts",
     "verify:onchain": "tsx deploy/verify_onchain.ts",

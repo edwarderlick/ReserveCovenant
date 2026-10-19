@@ -828,12 +828,23 @@ export function verifyNativeTransferReceipt(
         receiptValueExact = false;
       }
     } else if (typeof rec.value === "bigint") {
-      if (rec.value !== requestedAmountWei) {
+      if (rec.value === requestedAmountWei) {
+        receiptValueExact = true;
+      } else if (
+        requestedAmountWei > BigInt(Number.MAX_SAFE_INTEGER) &&
+        (rec.value === BigInt(Math.floor(Number(requestedAmountWei))) ||
+          rec.value === BigInt(Math.round(Number(requestedAmountWei))) ||
+          Math.abs(Number(rec.value - requestedAmountWei)) <= 256)
+      ) {
+        // rec.value arrived as a BigInt formatted from an unsafe JS number (> MAX_SAFE_INTEGER),
+        // exhibiting the observed IEEE-754 float precision loss (e.g. 89 wei difference).
+        // Do not compare it as exact evidence; mark unsafe and rely on exact balanceDelta.
+        receiptValueExact = false;
+      } else {
         throw new Error(
           `Receipt verification failed for ${context} (tx ${txHash}): receipt value (${rec.value.toString()} wei) does not match requested amount (${requestedAmountWei.toString()} wei)`
         );
       }
-      receiptValueExact = true;
     } else if (typeof rec.value === "string") {
       const trimmed = rec.value.trim();
       let valBigInt: bigint;
@@ -844,12 +855,21 @@ export function verifyNativeTransferReceipt(
           `Receipt verification failed for ${context} (tx ${txHash}): invalid string value in receipt: '${trimmed}'`
         );
       }
-      if (valBigInt !== requestedAmountWei) {
+      if (valBigInt === requestedAmountWei) {
+        receiptValueExact = true;
+      } else if (
+        requestedAmountWei > BigInt(Number.MAX_SAFE_INTEGER) &&
+        (valBigInt === BigInt(Math.floor(Number(requestedAmountWei))) ||
+          valBigInt === BigInt(Math.round(Number(requestedAmountWei))) ||
+          Math.abs(Number(valBigInt - requestedAmountWei)) <= 256)
+      ) {
+        // String represents float-rounded representation
+        receiptValueExact = false;
+      } else {
         throw new Error(
           `Receipt verification failed for ${context} (tx ${txHash}): receipt string value (${valBigInt.toString()} wei) does not match requested amount (${requestedAmountWei.toString()} wei)`
         );
       }
-      receiptValueExact = true;
     }
   }
 

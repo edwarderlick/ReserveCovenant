@@ -365,18 +365,6 @@ async function runLiveIntegration(): Promise<void> {
       return;
     }
 
-    // Fund ephemeral challenger from issuer only if shortfall > 0
-    if (shortfall > 0n) {
-      const fundResult = await executeAndVerifyChallengerFunding({
-        issuerClient,
-        issuerAccount: issuerSigner.account,
-        challengerAddress: challengerAccount.address,
-        fundingAmount: shortfall,
-        requiredPostBalance: requiredFunding,
-      });
-      console.log(`[live] Challenger funding confirmed via native transfer verifier (tx ${fundResult.fundTxHash})`);
-    }
-
     // Retain in-memory ephemeral account across scenario execution and cleanup.
     // In-memory reference will be released in finally block.
 
@@ -563,11 +551,23 @@ async function runLiveIntegration(): Promise<void> {
     return record;
   };
 
-  try {
-    // Run Scenarios 1..6
-    for (let i = 0; i < 6; i++) {
-      records.push(await runStandardChallengedScenario(specs[i]));
-    }
+    try {
+      // Fund ephemeral challenger from issuer only if shortfall > 0
+      if (shortfall > 0n) {
+        const fundResult = await executeAndVerifyChallengerFunding({
+          issuerClient,
+          issuerAccount: issuerSigner.account,
+          challengerAddress: challengerAccount.address,
+          fundingAmount: shortfall,
+          requiredPostBalance: requiredFunding,
+        });
+        console.log(`[live] Challenger funding confirmed via native transfer verifier (tx ${fundResult.fundTxHash})`);
+      }
+
+      // Run Scenarios 1..6
+      for (let i = 0; i < 6; i++) {
+        records.push(await runStandardChallengedScenario(specs[i]));
+      }
 
   // --- Scenario 7: Repeated Resolution Reverts on FRESH Contract ---
   console.log("\n--- Scenario 7: Repeated Resolution Reverts (Fresh Contract) ---");
